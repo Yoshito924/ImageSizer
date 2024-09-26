@@ -41,6 +41,10 @@ ImageSizer は以下の画像フォーマットに対応しています：
 2. お使いのPCに必要なライブラリをインストールします：
 
    ```bash
+   pip install pillow
+   ```
+
+   ```bash
    pip install pillow tkinterdnd2
    ```
 
