@@ -108,10 +108,30 @@ def process_image(
         img = crop_image(img, crop_type, aspect_ratio)  # 画像をクロップ
         cropped_width, cropped_height = img.size  # クロップ後の幅と高さ
 
+        # クロップが適用された場合、ファイル名に"_cropped_クロップタイプ"を追加
+        if crop_type != "none":
+            if crop_type == "custom" and aspect_ratio is not None:
+                # カスタム比率の場合、入力値をファイル名に反映
+                aspect_width = (
+                    int(aspect_ratio[0])
+                    if aspect_ratio[0].is_integer()
+                    else aspect_ratio[0]
+                )
+                aspect_height = (
+                    int(aspect_ratio[1])
+                    if aspect_ratio[1].is_integer()
+                    else aspect_ratio[1]
+                )
+                crop_type_safe = f"{aspect_width}×{aspect_height}"
+            else:
+                # クロップタイプが16:9などの場合、ファイル名にバグが発生しないように変換
+                crop_type_safe = crop_type.replace(":", "×")
+            name += f"_{crop_type_safe}"
+
         # サイズ変更なしの場合
         if size_type == "none":
             # クロップ後の画像を保存
-            output_path = os.path.join(output_folder, f"{name}_cropped{ext}")
+            output_path = os.path.join(output_folder, f"{name}{ext}")
             img.save(output_path, quality=quality, optimize=True)
             if progress_callback:
                 progress_callback(1.0)  # プログレスバーを100%にする
@@ -199,12 +219,10 @@ def process_image(
                 # 目標サイズに到達した場合
                 if condition:
                     # 処理結果を記録
-                    operation_name = (
-                        "compressed" if operation == "compress" else "upscaled"
-                    )
+                    operation_name = "compressed" if operation == "comp" else "upscale"
                     output_path = os.path.join(
                         output_folder,
-                        f"{name}_{operation_name}_{current_ratio}of100%{ext}",
+                        f"{name}_{current_ratio}%{ext}",
                     )
                     shutil.copy2(temp_path, output_path)
                     if progress_callback:
@@ -321,7 +339,7 @@ class ImageProcessorApp:
         self.aspect_ratio_frame.pack_forget()
 
         # サイズ変更設定部分
-        size_frame = ttk.LabelFrame(self.master, text="サイズ変更設定", padding=(10, 5))
+        size_frame = ttk.LabelFrame(self.master, text="目標サイズ設定", padding=(10, 5))
         # サイズ変更設定用のフレームを作成
         size_frame.pack(fill=tk.X, padx=10, pady=5)  # フレームを配置
         # サイズ変更設定用のラジオボタンを作成
