@@ -1,6 +1,6 @@
 # ImageSizer
 
-ImageSizer は、画像のサイズを簡単に調整できる Python アプリケーションです。
+ImageSizer は、画像のサイズを簡単に調整できる Python アプリケーションです。</br>
 ドラッグアンドドロップのインターフェースを使用して、複数の画像を一度に処理できます。
 
 ![ImageSizer メイン画面](images/imagesizer_main.png)
@@ -45,7 +45,7 @@ ImageSizer は、画像のサイズを簡単に調整できる Python アプリ�
   - Pillow (PIL)
   - tkinterdnd2
 
-## インストール
+## インストール方法
 
 1. リポジトリをクローンまたはダウンロードします。
 2. 必要なライブラリをインストールします：
