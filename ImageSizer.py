@@ -8,12 +8,66 @@ import tempfile
 import shutil
 
 
+def crop_image(img, crop_type, aspect_ratio=None):
+    width, height = img.size
+    if crop_type == "square":
+        size = min(width, height)
+        left = (width - size) // 2
+        top = (height - size) // 2
+        right = left + size
+        bottom = top + size
+    elif crop_type == "custom":
+        if aspect_ratio is None:
+            return img
+        target_ratio = aspect_ratio[0] / aspect_ratio[1]
+        if width / height > target_ratio:
+            new_width = int(height * target_ratio)
+            left = (width - new_width) // 2
+            right = left + new_width
+            top, bottom = 0, height
+        else:
+            new_height = int(width / target_ratio)
+            top = (height - new_height) // 2
+            bottom = top + new_height
+            left, right = 0, width
+    elif crop_type == "16:9":
+        target_ratio = 16 / 9
+        if width / height > target_ratio:
+            new_width = int(height * target_ratio)
+            left = (width - new_width) // 2
+            right = left + new_width
+            top, bottom = 0, height
+        else:
+            new_height = int(width / target_ratio)
+            top = (height - new_height) // 2
+            bottom = top + new_height
+            left, right = 0, width
+    elif crop_type == "4:3":
+        target_ratio = 4 / 3
+        if width / height > target_ratio:
+            new_width = int(height * target_ratio)
+            left = (width - new_width) // 2
+            right = left + new_width
+            top, bottom = 0, height
+        else:
+            new_height = int(width / target_ratio)
+            top = (height - new_height) // 2
+            bottom = top + new_height
+            left, right = 0, width
+    else:
+        return img
+
+    return img.crop((left, top, right, bottom))
+
+
 def process_image(
     input_path,
     output_folder,
     target_size,
     operation,
     size_type,
+    crop_type,
+    aspect_ratio=None,
     quality=85,
     progress_callback=None,
 ):
@@ -29,48 +83,31 @@ def process_image(
                 progress_callback(1.0)
             return None, 1.0, "GIFファイルはスキップされました"
 
+        # クロップ処理を適用
+        img = crop_image(img, crop_type, aspect_ratio)
+        cropped_width, cropped_height = img.size
+
+        if size_type == "none":
+            output_path = os.path.join(output_folder, f"{name}_cropped{ext}")
+            img.save(output_path, quality=quality, optimize=True)
+            if progress_callback:
+                progress_callback(1.0)
+            return output_path, 1.0, None
+
         if size_type == "mb":
             target_size_mb = float(target_size)
             if operation == "auto":
-                if original_size == target_size_mb:
-                    if progress_callback:
-                        progress_callback(1.0)
-                    return None, 1.0, f"既に目標サイズ（{target_size_mb:.2f}MB）です"
                 operation = "compress" if original_size > target_size_mb else "upscale"
-            if operation == "compress" and original_size <= target_size_mb:
-                if progress_callback:
-                    progress_callback(1.0)
-                return None, 1.0, f"既に目標サイズ（{target_size_mb:.2f}MB）以下です"
-            elif operation == "upscale" and original_size >= target_size_mb:
-                if progress_callback:
-                    progress_callback(1.0)
-                return None, 1.0, f"既に目標サイズ（{target_size_mb:.2f}MB）以上です"
             size_ratio = (target_size_mb / original_size) ** 0.5
-        else:  # size_type == "px"
+        else:  # size_type == "width" or "height"
             target_size = int(target_size)
             if size_type == "width":
-                target_dimension = original_width
+                target_dimension = cropped_width
             else:  # size_type == "height"
-                target_dimension = original_height
+                target_dimension = cropped_height
 
             if operation == "auto":
-                if target_dimension == target_size:
-                    if progress_callback:
-                        progress_callback(1.0)
-                    return None, 1.0, f"既に目標サイズ（{target_size}px）です"
                 operation = "compress" if target_dimension > target_size else "upscale"
-
-            if (operation == "compress" and target_dimension <= target_size) or (
-                operation == "upscale" and target_dimension >= target_size
-            ):
-                if progress_callback:
-                    progress_callback(1.0)
-                return (
-                    None,
-                    1.0,
-                    f"既に目標サイズ（{target_size}px）{'以下' if operation == 'compress' else '以上'}です",
-                )
-
             size_ratio = target_size / target_dimension
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
@@ -80,13 +117,13 @@ def process_image(
             iteration = 0
             max_iterations = 20
             while iteration < max_iterations:
-                new_width = int(original_width * size_ratio)
-                new_height = int(original_height * size_ratio)
+                new_width = int(cropped_width * size_ratio)
+                new_height = int(cropped_height * size_ratio)
 
                 resized_img = img.resize((new_width, new_height), Image.LANCZOS)
 
                 current_ratio = int(
-                    (new_width * new_height) / (original_width * original_height) * 100
+                    (new_width * new_height) / (cropped_width * cropped_height) * 100
                 )
 
                 if ext.lower() in [".jpg", ".jpeg"]:
@@ -99,19 +136,19 @@ def process_image(
                 if progress_callback:
                     progress_callback((iteration + 1) / max_iterations)
 
+                condition = False
                 if size_type == "mb":
                     condition = (
                         operation == "compress" and new_size <= target_size_mb
                     ) or (operation == "upscale" and new_size >= target_size_mb)
-                else:  # size_type == "px"
-                    if size_type == "width":
-                        condition = (
-                            operation == "compress" and new_width <= target_size
-                        ) or (operation == "upscale" and new_width >= target_size)
-                    else:  # size_type == "height"
-                        condition = (
-                            operation == "compress" and new_height <= target_size
-                        ) or (operation == "upscale" and new_height >= target_size)
+                elif size_type == "width":
+                    condition = (
+                        operation == "compress" and new_width <= target_size
+                    ) or (operation == "upscale" and new_width >= target_size)
+                else:  # size_type == "height"
+                    condition = (
+                        operation == "compress" and new_height <= target_size
+                    ) or (operation == "upscale" and new_height >= target_size)
 
                 if condition:
                     operation_name = (
@@ -146,82 +183,140 @@ def process_image(
 class ImageProcessorApp:
     def __init__(self, master):
         self.master = master
-        master.title("画像処理ツール")
-        master.geometry("600x650")  # ウィンドウサイズを少し大きくしました
+        master.title("ImageSizer")
+        master.geometry("600x800+100+100")
 
         self.create_widgets()
         self.setup_drop_target()
 
     def create_widgets(self):
-        ttk.Label(self.master, text="画像をドラッグアンドドロップしてください:").pack(
-            pady=10
-        )
+        # ファイル選択部分
+        file_frame = ttk.LabelFrame(self.master, text="ファイル選択", padding=(10, 5))
+        file_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        self.file_listbox = tk.Listbox(self.master, width=70, height=5)
+        ttk.Label(
+            file_frame, text="画像をドラッグアンドドロップしてください（複数選択可）:"
+        ).pack(pady=5)
+        self.file_listbox = tk.Listbox(file_frame, width=70, height=5)
         self.file_listbox.pack(pady=5)
-
-        ttk.Button(self.master, text="ファイルを選択", command=self.browse_files).pack(
+        ttk.Button(file_frame, text="ファイルを選択", command=self.browse_files).pack(
             pady=5
         )
 
-        # サイズタイプの選択
+        # クロップ設定部分
+        crop_frame = ttk.LabelFrame(self.master, text="クロップ設定", padding=(10, 5))
+        crop_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        self.crop_var = tk.StringVar(value="none")
+        ttk.Radiobutton(
+            crop_frame,
+            text="クロップなし",
+            variable=self.crop_var,
+            value="none",
+            command=self.on_crop_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            crop_frame,
+            text="正方形（1:1）",
+            variable=self.crop_var,
+            value="square",
+            command=self.on_crop_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            crop_frame,
+            text="16:9",
+            variable=self.crop_var,
+            value="16:9",
+            command=self.on_crop_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            crop_frame,
+            text="4:3",
+            variable=self.crop_var,
+            value="4:3",
+            command=self.on_crop_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            crop_frame,
+            text="カスタム比率",
+            variable=self.crop_var,
+            value="custom",
+            command=self.on_crop_change,
+        ).pack(anchor=tk.W)
+
+        self.aspect_ratio_frame = ttk.Frame(crop_frame)
+        self.aspect_ratio_frame.pack(pady=5)
+        ttk.Label(self.aspect_ratio_frame, text="縦横比:").pack(side=tk.LEFT)
+        self.aspect_width = ttk.Entry(self.aspect_ratio_frame, width=5)
+        self.aspect_width.pack(side=tk.LEFT)
+        ttk.Label(self.aspect_ratio_frame, text=":").pack(side=tk.LEFT)
+        self.aspect_height = ttk.Entry(self.aspect_ratio_frame, width=5)
+        self.aspect_height.pack(side=tk.LEFT)
+        self.aspect_ratio_frame.pack_forget()
+
+        # サイズ変更設定部分
+        size_frame = ttk.LabelFrame(self.master, text="サイズ変更設定", padding=(10, 5))
+        size_frame.pack(fill=tk.X, padx=10, pady=5)
+
         self.size_type_var = tk.StringVar(value="mb")
         ttk.Radiobutton(
-            self.master,
+            size_frame,
+            text="変更なし",
+            variable=self.size_type_var,
+            value="none",
+            command=self.on_size_type_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            size_frame,
             text="MBで指定",
             variable=self.size_type_var,
             value="mb",
             command=self.on_size_type_change,
-        ).pack()
+        ).pack(anchor=tk.W)
         ttk.Radiobutton(
-            self.master,
+            size_frame,
             text="横ピクセルで指定",
             variable=self.size_type_var,
             value="width",
             command=self.on_size_type_change,
-        ).pack()
+        ).pack(anchor=tk.W)
         ttk.Radiobutton(
-            self.master,
+            size_frame,
             text="縦ピクセルで指定",
             variable=self.size_type_var,
             value="height",
             command=self.on_size_type_change,
-        ).pack()
-        self.size_frame = ttk.Frame(self.master)
-        self.size_frame.pack(pady=5)
+        ).pack(anchor=tk.W)
 
-        self.size_label = ttk.Label(self.size_frame, text="目標サイズ (MB):")
+        self.size_input_frame = ttk.Frame(size_frame)
+        self.size_input_frame.pack(pady=5)
+        self.size_label = ttk.Label(self.size_input_frame, text="目標サイズ (MB):")
         self.size_label.pack(side=tk.LEFT)
-
-        self.size_entry = ttk.Entry(self.size_frame, width=10)
+        self.size_entry = ttk.Entry(self.size_input_frame, width=10)
         self.size_entry.insert(0, "2")
         self.size_entry.pack(side=tk.LEFT, padx=5)
-        self.size_entry.bind("<FocusOut>", self.on_setting_change)
 
-        # 操作モードの選択（自動調整を追加）
+        # 拡大・縮小モードの選択部分
+        operation_frame = ttk.LabelFrame(
+            self.master, text="拡大・縮小モードの選択", padding=(10, 5)
+        )
+        operation_frame.pack(fill=tk.X, padx=10, pady=5)
+
         self.operation_var = tk.StringVar(value="auto")
         ttk.Radiobutton(
-            self.master,
-            text="自動調整",
+            operation_frame,
+            text="自動調整（目標サイズより小さければ拡大、大きければ圧縮）",
             variable=self.operation_var,
             value="auto",
-            command=self.on_setting_change,
-        ).pack()
+        ).pack(anchor=tk.W)
         ttk.Radiobutton(
-            self.master,
-            text="圧縮",
-            variable=self.operation_var,
-            value="compress",
-            command=self.on_setting_change,
-        ).pack()
+            operation_frame, text="圧縮", variable=self.operation_var, value="compress"
+        ).pack(anchor=tk.W)
         ttk.Radiobutton(
-            self.master,
-            text="拡大",
-            variable=self.operation_var,
-            value="upscale",
-            command=self.on_setting_change,
-        ).pack()
+            operation_frame, text="拡大", variable=self.operation_var, value="upscale"
+        ).pack(anchor=tk.W)
 
+        # プログレスバーとログ出力
         self.progress = ttk.Progressbar(
             self.master, orient="horizontal", length=400, mode="determinate"
         )
@@ -238,7 +333,7 @@ class ImageProcessorApp:
     def drop(self, event):
         files = self.master.tk.splitlist(event.data)
         self.add_files(files)
-        self.process_images()
+        self.process_images()  # Start processing immediately after dropping files
 
     def add_files(self, files):
         for file in files:
@@ -250,40 +345,60 @@ class ImageProcessorApp:
             filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff")]
         )
         self.add_files(files)
-        self.process_images()
+
+    def on_crop_change(self):
+        if self.crop_var.get() == "custom":
+            self.aspect_ratio_frame.pack()
+        else:
+            self.aspect_ratio_frame.pack_forget()
 
     def on_size_type_change(self):
         size_type = self.size_type_var.get()
-        if size_type == "mb":
-            self.size_label.config(text="目標サイズ (MB):")
-            self.size_entry.delete(0, tk.END)
-            self.size_entry.insert(0, "2")
-        elif size_type == "width":
-            self.size_label.config(text="目標サイズ (横px):")
-            self.size_entry.delete(0, tk.END)
-            self.size_entry.insert(0, "1920")
-        else:  # height
-            self.size_label.config(text="目標サイズ (縦px):")
-            self.size_entry.delete(0, tk.END)
-            self.size_entry.insert(0, "1080")
-        self.on_setting_change()
-
-    def on_setting_change(self, event=None):
-        self.process_images()
+        if size_type == "none":
+            self.size_input_frame.pack_forget()
+        else:
+            self.size_input_frame.pack()
+            if size_type == "mb":
+                self.size_label.config(text="目標サイズ (MB):")
+                self.size_entry.delete(0, tk.END)
+                self.size_entry.insert(0, "2")
+            elif size_type == "width":
+                self.size_label.config(text="目標サイズ (横px):")
+                self.size_entry.delete(0, tk.END)
+                self.size_entry.insert(0, "1920")
+            else:  # height
+                self.size_label.config(text="目標サイズ (縦px):")
+                self.size_entry.delete(0, tk.END)
+                self.size_entry.insert(0, "1080")
 
     def process_images(self):
         files = list(self.file_listbox.get(0, tk.END))
-        try:
-            target_size = float(self.size_entry.get())
-        except ValueError:
-            messagebox.showerror("エラー", "目標サイズには数値を入力してください。")
+        if not files:
+            messagebox.showwarning("警告", "処理する画像ファイルが選択されていません。")
             return
 
-        if not files:
-            return
+        size_type = self.size_type_var.get()
+        if size_type != "none":
+            try:
+                target_size = float(self.size_entry.get())
+            except ValueError:
+                messagebox.showerror("エラー", "目標サイズには数値を入力してください。")
+                return
+        else:
+            target_size = None
 
         operation = self.operation_var.get()
-        size_type = self.size_type_var.get()
+        crop_type = self.crop_var.get()
+
+        aspect_ratio = None
+        if crop_type == "custom":
+            try:
+                aspect_width = float(self.aspect_width.get())
+                aspect_height = float(self.aspect_height.get())
+                aspect_ratio = (aspect_width, aspect_height)
+            except ValueError:
+                messagebox.showerror("エラー", "縦横比には数値を入力してください。")
+                return
 
         self.output_text.delete(1.0, tk.END)
         self.progress["maximum"] = len(files) * 100
@@ -303,6 +418,8 @@ class ImageProcessorApp:
                         target_size,
                         operation,
                         size_type,
+                        crop_type,
+                        aspect_ratio,
                         progress_callback=lambda p: update_progress(
                             p * 100 / len(files)
                         ),
