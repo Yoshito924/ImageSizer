@@ -3,7 +3,7 @@
 ImageSizer は、画像のサイズを簡単に調整できる Python アプリケーションです。
 ドラッグアンドドロップのインターフェースを使用して、複数の画像を一度に処理できます。
 
-![ImageSizer メイン画面](images/imagesizer_main.png)
+![ImageSizer メイン画面](images/ImageSizer.gif)
 
 ## 主な機能
 
