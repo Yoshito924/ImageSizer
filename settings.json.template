@@ -1,0 +1,8 @@
+{
+    "always_on_top": false,
+    "crop_type": "none",
+    "size_type": "mb",
+    "operation": "auto",
+    "output_format": "original",
+    "filename_pattern": "default"
+}

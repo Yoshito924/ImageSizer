@@ -87,6 +87,7 @@ def process_image(
     aspect_ratio=None,
     quality=85,
     progress_callback=None,
+    filename_pattern="default"
 ):
     # 画像を開く
     with Image.open(input_path) as img:
@@ -108,34 +109,41 @@ def process_image(
         img = crop_image(img, crop_type, aspect_ratio)  # 画像をクロップ
         cropped_width, cropped_height = img.size  # クロップ後の幅と高さ
 
-        # クロップが適用された場合、ファイル名に"_cropped_クロップタイプ"を追加
-        if crop_type != "none":
-            if crop_type == "custom" and aspect_ratio is not None:
-                # カスタム比率の場合、入力値をファイル名に反映
-                aspect_width = (
-                    int(aspect_ratio[0])
-                    if aspect_ratio[0].is_integer()
-                    else aspect_ratio[0]
-                )
-                aspect_height = (
-                    int(aspect_ratio[1])
-                    if aspect_ratio[1].is_integer()
-                    else aspect_ratio[1]
-                )
-                crop_type_safe = f"{aspect_width}×{aspect_height}"
-            else:
-                # クロップタイプが16:9などの場合、ファイル名にバグが発生しないように変換
-                crop_type_safe = crop_type.replace(":", "×")
-            name += f"_{crop_type_safe}"
+        # 出力ファイル名を生成
+        output_filename = name
+        if filename_pattern == "keep_original":
+            # 元のファイル名を維持（拡張子のみ変更）
+            pass
+        elif filename_pattern == "default":
+            # デフォルトパターン: 元のファイル名_クロップタイプ_サイズ比率
+            if crop_type != "none":
+                if crop_type == "custom" and aspect_ratio is not None:
+                    aspect_width = int(aspect_ratio[0]) if aspect_ratio[0].is_integer() else aspect_ratio[0]
+                    aspect_height = int(aspect_ratio[1]) if aspect_ratio[1].is_integer() else aspect_ratio[1]
+                    crop_type_safe = f"{aspect_width}×{aspect_height}"
+                else:
+                    crop_type_safe = crop_type.replace(":", "×")
+                output_filename += f"_{crop_type_safe}"
+        elif filename_pattern == "timestamp":
+            # タイムスタンプパターン: 元のファイル名_YYYYMMDD_HHMMSS
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename += f"_{timestamp}"
+        elif filename_pattern == "sequential":
+            # 連番パターン: 元のファイル名_001
+            counter = 1
+            while os.path.exists(os.path.join(output_folder, f"{output_filename}_{counter:03d}{ext}")):
+                counter += 1
+            output_filename += f"_{counter:03d}"
 
         # サイズ変更なしの場合
         if size_type == "none":
             # クロップ後の画像を保存
-            output_path = os.path.join(output_folder, f"{name}{ext}")
+            output_path = os.path.join(output_folder, f"{output_filename}{ext}")
             img.save(output_path, quality=quality, optimize=True)
             if progress_callback:
-                progress_callback(1.0)  # プログレスバーを100%にする
-            return output_path, 1.0, None  # 出力パス、サイズ比率、メッセージ
+                progress_callback(1.0)
+            return output_path, 1.0, None
 
         # サイズ変更ありの場合
         if size_type == "mb":
@@ -220,10 +228,9 @@ def process_image(
                 if condition:
                     # 処理結果を記録
                     operation_name = "compressed" if operation == "comp" else "upscale"
-                    output_path = os.path.join(
-                        output_folder,
-                        f"{name}_{current_ratio}%{ext}",
-                    )
+                    if filename_pattern == "default":
+                        output_filename += f"_{current_ratio}%"
+                    output_path = os.path.join(output_folder, f"{output_filename}{ext}")
                     shutil.copy2(temp_path, output_path)
                     if progress_callback:
                         progress_callback(1.0)  # プログレスバーを100%にする
@@ -268,7 +275,35 @@ class ImageProcessorApp:
         self.setup_drop_target()  # ドロップターゲットを設定
 
     def create_widgets(self):
-        # ウィジェット作成処理
+        # 出力ファイル名パターン選択部分
+        filename_frame = ttk.LabelFrame(self.master, text="出力ファイル名パターン", padding=(10, 5))
+        filename_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.filename_pattern_var = tk.StringVar(value="default")
+        ttk.Radiobutton(
+            filename_frame,
+            text="元のファイル名を維持（拡張子のみ変更）",
+            variable=self.filename_pattern_var,
+            value="keep_original"
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            filename_frame,
+            text="デフォルト（元のファイル名_クロップタイプ_サイズ比率）",
+            variable=self.filename_pattern_var,
+            value="default"
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            filename_frame,
+            text="タイムスタンプ（元のファイル名_YYYYMMDD_HHMMSS）",
+            variable=self.filename_pattern_var,
+            value="timestamp"
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            filename_frame,
+            text="連番（元のファイル名_001）",
+            variable=self.filename_pattern_var,
+            value="sequential"
+        ).pack(anchor=tk.W)
+
         # ファイル選択部分
         file_frame = ttk.LabelFrame(self.master, text="ファイル選択", padding=(10, 5))
         # ファイル選択用のフレームを作成
@@ -543,9 +578,8 @@ class ImageProcessorApp:
                         size_type,
                         crop_type,
                         aspect_ratio,
-                        progress_callback=lambda p: update_progress(
-                            p * 100 / len(files)
-                        ),
+                        progress_callback=lambda p: update_progress(p * 100 / len(files)),
+                        filename_pattern=self.filename_pattern_var.get()
                     )
                     # 処理結果に応じてログ出力
                     if message:

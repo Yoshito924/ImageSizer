@@ -68,6 +68,7 @@ def process_image(
     quality=85,
     progress_callback=None,
     output_format=None,
+    filename_pattern="default"
 ):
     """画像を処理する関数"""
     with Image.open(input_path) as img:
@@ -94,25 +95,43 @@ def process_image(
         img = crop_image(img, crop_type, aspect_ratio)
         cropped_width, cropped_height = img.size
 
-        if crop_type != "none":
+        # 出力ファイル名のベース部分を生成
+        output_filename = name
+
+        # クロップタイプを追加（クロップが実際に行われた場合のみ）
+        if filename_pattern.get("include_crop_type", False) and crop_type != "none":
             if crop_type == "custom" and aspect_ratio is not None:
                 aspect_width = (
                     int(aspect_ratio[0])
-                    if aspect_ratio[0].is_integer()
+                    if isinstance(aspect_ratio[0], float) and aspect_ratio[0].is_integer()
                     else aspect_ratio[0]
                 )
                 aspect_height = (
                     int(aspect_ratio[1])
-                    if aspect_ratio[1].is_integer()
+                    if isinstance(aspect_ratio[1], float) and aspect_ratio[1].is_integer()
                     else aspect_ratio[1]
                 )
                 crop_type_safe = f"{aspect_width}×{aspect_height}"
             else:
                 crop_type_safe = crop_type.replace(":", "×")
-            name += f"_{crop_type_safe}"
+            if cropped_width != original_width or cropped_height != original_height:
+                output_filename += f"_{crop_type_safe}"
+
+        # タイムスタンプを追加
+        if filename_pattern.get("include_timestamp", False):
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename += f"_{timestamp}"
+
+        # 連番を追加
+        if filename_pattern.get("include_sequential", False):
+            counter = 1
+            while os.path.exists(os.path.join(output_folder, f"{output_filename}_{counter:03d}{ext}")):
+                counter += 1
+            output_filename += f"_{counter:03d}"
 
         if size_type == "none":
-            output_path = os.path.join(output_folder, f"{name}{ext}")
+            output_path = os.path.join(output_folder, f"{output_filename}{ext}")
             if output_format == 'webp':
                 img.save(output_path, 'WEBP', quality=quality)
             else:
@@ -181,11 +200,15 @@ def process_image(
                     ) or (operation == "upscale" and new_height >= target_size)
 
                 if condition:
-                    operation_name = "compressed" if operation == "comp" else "upscale"
-                    output_path = os.path.join(
-                        output_folder,
-                        f"{name}_{current_ratio}%{ext}",
-                    )
+                    # サイズ比率を追加（サイズが実際に変更された場合のみ）
+                    if filename_pattern.get("include_size_ratio", False) and size_type != "none":
+                        current_ratio = int(
+                            (new_width * new_height) / (original_width * original_height) * 100
+                        )
+                        if current_ratio != 100:  # サイズが変更された場合のみ
+                            output_filename += f"_{current_ratio}%"
+
+                    output_path = os.path.join(output_folder, f"{output_filename}{ext}")
                     shutil.copy2(temp_path, output_path)
                     if progress_callback:
                         progress_callback(1.0)

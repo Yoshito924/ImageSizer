@@ -2,21 +2,30 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Distribution / packaging
-dist/
+*.so
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
+*.egg
 
-# Virtual environment
-venv/
-env/
-.env/
+# User settings
+settings.json
 
 # IDE
-.vscode/
 .idea/
-
-# OS
+.vscode/
+*.swp
+*.swo
 .DS_Store
-Thumbs.db

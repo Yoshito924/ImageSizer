@@ -11,12 +11,81 @@ class ImageProcessorApp:
     def __init__(self, master):
         self.master = master
         master.title("ImageSizer")
-        master.geometry("600x800+100+100")
+        master.geometry("900x600+100+100")
+
+        # 設定をロード
+        self.load_settings()
 
         self.create_widgets()
         self.setup_drop_target()
 
+    def load_settings(self):
+        """設定をJSONファイルからロード"""
+        self.settings_file = os.path.join(os.path.dirname(__file__), "settings.json")
+        try:
+            if os.path.exists(self.settings_file):
+                with open(self.settings_file, "r", encoding="utf-8") as f:
+                    import json
+                    settings = json.load(f)
+                    self.always_on_top = settings.get("always_on_top", False)
+                    self.crop_type = settings.get("crop_type", "none")
+                    self.size_type = settings.get("size_type", "mb")
+                    self.operation = settings.get("operation", "auto")
+                    self.output_format = settings.get("output_format", "original")
+                    self.filename_pattern = settings.get("filename_pattern", "default")
+            else:
+                self.always_on_top = False
+                self.crop_type = "none"
+                self.size_type = "mb"
+                self.operation = "auto"
+                self.output_format = "original"
+                self.filename_pattern = "default"
+        except Exception as e:
+            print(f"設定ロードエラー: {e}")
+            self.always_on_top = False
+            self.crop_type = "none"
+            self.size_type = "mb"
+            self.operation = "auto"
+            self.output_format = "original"
+            self.filename_pattern = "default"
+
+    def save_settings(self):
+        """設定をJSONファイルに保存"""
+        try:
+            settings = {
+                "always_on_top": self.always_on_top,
+                "crop_type": self.crop_var.get(),
+                "size_type": self.size_type_var.get(),
+                "operation": self.operation_var.get(),
+                "output_format": self.format_var.get(),
+                "filename_pattern": self.filename_pattern_var.get()
+            }
+            with open(self.settings_file, "w", encoding="utf-8") as f:
+                import json
+                json.dump(settings, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            print(f"設定保存エラー: {e}")
+
+    def toggle_always_on_top(self):
+        """最前面表示のトグル"""
+        self.always_on_top = not self.always_on_top
+        self.master.attributes("-topmost", self.always_on_top)
+        self.save_settings()
+
     def create_widgets(self):
+        # 最前面表示トグルボタン
+        toggle_frame = ttk.Frame(self.master)
+        toggle_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.toggle_button = ttk.Checkbutton(
+            toggle_frame,
+            text="常に最前面に表示",
+            command=self.toggle_always_on_top
+        )
+        self.toggle_button.pack(side=tk.RIGHT)
+        if self.always_on_top:
+            self.toggle_button.state(['selected'])
+            self.master.attributes("-topmost", True)
+
         # ファイル選択部分
         file_frame = ttk.LabelFrame(self.master, text="ファイル選択", padding=(10, 5))
         file_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -29,10 +98,22 @@ class ImageProcessorApp:
             pady=5
         )
 
-        # クロップ設定部分
-        crop_frame = ttk.LabelFrame(self.master, text="クロップ設定", padding=(10, 5))
-        crop_frame.pack(fill=tk.X, padx=10, pady=5)
-        self.crop_var = tk.StringVar(value="none")
+        # 左右のフレームを作成
+        settings_frame = ttk.Frame(self.master)
+        settings_frame.pack(fill=tk.BOTH, expand=True, padx=10)
+        
+        # 左側のフレーム
+        left_frame = ttk.Frame(settings_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        
+        # 右側のフレーム
+        right_frame = ttk.Frame(settings_frame)
+        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 0))
+
+        # クロップ設定部分（左側）
+        crop_frame = ttk.LabelFrame(left_frame, text="クロップ設定", padding=(10, 5))
+        crop_frame.pack(fill=tk.X, pady=5)
+        self.crop_var = tk.StringVar(value=self.crop_type)
         ttk.Radiobutton(
             crop_frame,
             text="クロップなし",
@@ -80,10 +161,10 @@ class ImageProcessorApp:
         self.aspect_height.pack(side=tk.LEFT)
         self.aspect_ratio_frame.pack_forget()
 
-        # サイズ変更設定部分
-        size_frame = ttk.LabelFrame(self.master, text="目標サイズ設定", padding=(10, 5))
-        size_frame.pack(fill=tk.X, padx=10, pady=5)
-        self.size_type_var = tk.StringVar(value="mb")
+        # サイズ変更設定部分（右側）
+        size_frame = ttk.LabelFrame(right_frame, text="目標サイズ設定", padding=(10, 5))
+        size_frame.pack(fill=tk.X, pady=5)
+        self.size_type_var = tk.StringVar(value=self.size_type)
         ttk.Radiobutton(
             size_frame,
             text="変更なし",
@@ -122,12 +203,12 @@ class ImageProcessorApp:
         self.size_entry.insert(0, "2")
         self.size_entry.pack(side=tk.LEFT, padx=5)
 
-        # 拡大・縮小モードの選択部分
+        # 拡大・縮小モードの選択部分（左側）
         operation_frame = ttk.LabelFrame(
-            self.master, text="拡大・縮小モードの選択", padding=(10, 5)
+            left_frame, text="拡大・縮小モードの選択", padding=(10, 5)
         )
-        operation_frame.pack(fill=tk.X, padx=10, pady=5)
-        self.operation_var = tk.StringVar(value="auto")
+        operation_frame.pack(fill=tk.X, pady=5)
+        self.operation_var = tk.StringVar(value=self.operation)
         ttk.Radiobutton(
             operation_frame,
             text="自動調整（目標サイズより小さければ拡大、大きければ圧縮）",
@@ -141,12 +222,12 @@ class ImageProcessorApp:
             operation_frame, text="拡大", variable=self.operation_var, value="upscale"
         ).pack(anchor=tk.W)
 
-        # 出力フォーマット選択部分
+        # 出力フォーマット選択部分（右側）
         format_frame = ttk.LabelFrame(
-            self.master, text="出力フォーマット", padding=(10, 5)
+            right_frame, text="出力フォーマット", padding=(10, 5)
         )
-        format_frame.pack(fill=tk.X, padx=10, pady=5)
-        self.format_var = tk.StringVar(value="original")
+        format_frame.pack(fill=tk.X, pady=5)
+        self.format_var = tk.StringVar(value=self.output_format)
         ttk.Radiobutton(
             format_frame,
             text="元のフォーマットを維持",
@@ -160,12 +241,53 @@ class ImageProcessorApp:
             value="webp",
         ).pack(anchor=tk.W)
 
+        # 出力ファイル名パターン選択部分（左側）
+        filename_frame = ttk.LabelFrame(
+            left_frame, text="出力ファイル名パターン", padding=(10, 5)
+        )
+        filename_frame.pack(fill=tk.X, pady=5)
+        
+        # チェックボックス用の変数
+        self.include_crop_type = tk.BooleanVar(value=False)
+        self.include_size_ratio = tk.BooleanVar(value=False)
+        self.include_timestamp = tk.BooleanVar(value=False)
+        self.include_sequential = tk.BooleanVar(value=False)
+        
+        ttk.Label(
+            filename_frame,
+            text="ファイル名に含める情報を選択してください："
+        ).pack(anchor=tk.W, pady=(0, 5))
+        
+        ttk.Checkbutton(
+            filename_frame,
+            text="クロップタイプ（クロップ時のみ）",
+            variable=self.include_crop_type
+        ).pack(anchor=tk.W)
+        
+        ttk.Checkbutton(
+            filename_frame,
+            text="サイズ比率（サイズ変更時のみ）",
+            variable=self.include_size_ratio
+        ).pack(anchor=tk.W)
+        
+        ttk.Checkbutton(
+            filename_frame,
+            text="タイムスタンプ（YYYYMMDD_HHMMSS）",
+            variable=self.include_timestamp
+        ).pack(anchor=tk.W)
+        
+        ttk.Checkbutton(
+            filename_frame,
+            text="連番（001, 002, ...）",
+            variable=self.include_sequential
+        ).pack(anchor=tk.W)
+
         # プログレスバーとログ出力
         self.progress = ttk.Progressbar(
             self.master, orient="horizontal", length=400, mode="determinate"
         )
         self.progress.pack(pady=10)
-        self.output_text = tk.Text(self.master, height=15, width=70)
+        self.output_text = tk.Text(self.master, height=10, width=70)
         self.output_text.pack(pady=10)
         self.output_text.tag_configure("green", foreground="green")
 
@@ -194,6 +316,7 @@ class ImageProcessorApp:
             self.aspect_ratio_frame.pack()
         else:
             self.aspect_ratio_frame.pack_forget()
+        self.save_settings()
 
     def on_size_type_change(self):
         size_type = self.size_type_var.get()
@@ -213,6 +336,7 @@ class ImageProcessorApp:
                 self.size_label.config(text="目標サイズ (縦px):")
                 self.size_entry.delete(0, tk.END)
                 self.size_entry.insert(0, "1080")
+        self.save_settings()
 
     def process_images(self):
         files = list(self.file_listbox.get(0, tk.END))
@@ -269,6 +393,12 @@ class ImageProcessorApp:
                             p * 100 / len(files)
                         ),
                         output_format=output_format,
+                        filename_pattern={
+                            "include_crop_type": self.include_crop_type.get(),
+                            "include_size_ratio": self.include_size_ratio.get(),
+                            "include_timestamp": self.include_timestamp.get(),
+                            "include_sequential": self.include_sequential.get()
+                        }
                     )
 
                     if message:
