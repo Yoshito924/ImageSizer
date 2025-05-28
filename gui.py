@@ -214,12 +214,15 @@ class ImageProcessorApp:
             text="自動調整（目標サイズより小さければ拡大、大きければ圧縮）",
             variable=self.operation_var,
             value="auto",
+            command=self.save_settings
         ).pack(anchor=tk.W)
         ttk.Radiobutton(
-            operation_frame, text="圧縮", variable=self.operation_var, value="compress"
+            operation_frame, text="圧縮", variable=self.operation_var, value="compress",
+            command=self.save_settings
         ).pack(anchor=tk.W)
         ttk.Radiobutton(
-            operation_frame, text="拡大", variable=self.operation_var, value="upscale"
+            operation_frame, text="拡大", variable=self.operation_var, value="upscale",
+            command=self.save_settings
         ).pack(anchor=tk.W)
 
         # 出力フォーマット選択部分（右側）
@@ -246,6 +249,36 @@ class ImageProcessorApp:
             left_frame, text="出力ファイル名パターン", padding=(10, 5)
         )
         filename_frame.pack(fill=tk.X, pady=5)
+        
+        self.filename_pattern_var = tk.StringVar(value=self.filename_pattern)
+        ttk.Radiobutton(
+            filename_frame,
+            text="元のファイル名を維持（拡張子のみ変更）",
+            variable=self.filename_pattern_var,
+            value="keep_original",
+            command=self.save_settings
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            filename_frame,
+            text="デフォルト（元のファイル名_クロップタイプ_サイズ比率）",
+            variable=self.filename_pattern_var,
+            value="default",
+            command=self.save_settings
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            filename_frame,
+            text="タイムスタンプ（元のファイル名_YYYYMMDD_HHMMSS）",
+            variable=self.filename_pattern_var,
+            value="timestamp",
+            command=self.save_settings
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            filename_frame,
+            text="連番（元のファイル名_001）",
+            variable=self.filename_pattern_var,
+            value="sequential",
+            command=self.save_settings
+        ).pack(anchor=tk.W)
         
         # チェックボックス用の変数
         self.include_crop_type = tk.BooleanVar(value=False)
