@@ -11,10 +11,16 @@ class ImageProcessorApp:
     def __init__(self, master):
         self.master = master
         master.title("ImageSizer")
-        master.geometry("900x600+100+100")
-
+        
         # 設定をロード
         self.load_settings()
+        
+        # ウィンドウサイズと位置を設定
+        geometry = f"{self.window_width}x{self.window_height}+{self.window_x}+{self.window_y}"
+        master.geometry(geometry)
+        
+        # ウィンドウ位置とサイズ変更のイベントをバインド
+        master.bind("<Configure>", self.on_window_configure)
 
         self.create_widgets()
         self.setup_drop_target()
@@ -33,6 +39,10 @@ class ImageProcessorApp:
                     self.operation = settings.get("operation", "auto")
                     self.output_format = settings.get("output_format", "original")
                     self.filename_pattern = settings.get("filename_pattern", "default")
+                    self.window_width = settings.get("window_width", 900)
+                    self.window_height = settings.get("window_height", 600)
+                    self.window_x = settings.get("window_x", 100)
+                    self.window_y = settings.get("window_y", 100)
             else:
                 self.always_on_top = False
                 self.crop_type = "none"
@@ -40,6 +50,10 @@ class ImageProcessorApp:
                 self.operation = "auto"
                 self.output_format = "original"
                 self.filename_pattern = "default"
+                self.window_width = 900
+                self.window_height = 600
+                self.window_x = 100
+                self.window_y = 100
         except Exception as e:
             print(f"設定ロードエラー: {e}")
             self.always_on_top = False
@@ -48,6 +62,10 @@ class ImageProcessorApp:
             self.operation = "auto"
             self.output_format = "original"
             self.filename_pattern = "default"
+            self.window_width = 900
+            self.window_height = 600
+            self.window_x = 100
+            self.window_y = 100
 
     def save_settings(self):
         """設定をJSONファイルに保存"""
@@ -58,7 +76,11 @@ class ImageProcessorApp:
                 "size_type": self.size_type_var.get(),
                 "operation": self.operation_var.get(),
                 "output_format": self.format_var.get(),
-                "filename_pattern": self.filename_pattern_var.get()
+                "filename_pattern": self.filename_pattern_var.get(),
+                "window_width": self.window_width,
+                "window_height": self.window_height,
+                "window_x": self.window_x,
+                "window_y": self.window_y
             }
             with open(self.settings_file, "w", encoding="utf-8") as f:
                 import json
@@ -98,6 +120,36 @@ class ImageProcessorApp:
             pady=5
         )
 
+        # プリセット選択部分
+        preset_frame = ttk.LabelFrame(self.master, text="プリセット設定", padding=(10, 5))
+        preset_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(preset_frame, text="プリセット:").pack(side=tk.LEFT, padx=(0, 5))
+        self.preset_var = tk.StringVar(value="カスタム")
+        self.preset_combo = ttk.Combobox(
+            preset_frame,
+            textvariable=self.preset_var,
+            values=[
+                "カスタム",
+                "--- SNSヘッダー ---",
+                "X (Twitter) ヘッダー: 1500x500",
+                "note ヘッダー: 1280x670",
+                "YouTube ヘッダー: 2048x1152",
+                "--- Web画像 ---",
+                "メインビジュアル: 1600px幅",
+                "プロジェクト詳細: 1200px幅",
+                "サムネイル: 400px幅",
+                "--- SNS投稿 ---",
+                "Instagram 正方形: 1080x1080",
+                "Instagram 縦長: 1080x1350",
+                "Instagram ストーリー: 1080x1920"
+            ],
+            state="readonly",
+            width=40
+        )
+        self.preset_combo.pack(side=tk.LEFT)
+        self.preset_combo.bind("<<ComboboxSelected>>", self.on_preset_change)
+        
         # 左右のフレームを作成
         settings_frame = ttk.Frame(self.master)
         settings_frame.pack(fill=tk.BOTH, expand=True, padx=10)
@@ -140,6 +192,13 @@ class ImageProcessorApp:
             text="4:3",
             variable=self.crop_var,
             value="4:3",
+            command=self.on_crop_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            crop_frame,
+            text="9:16",
+            variable=self.crop_var,
+            value="9:16",
             command=self.on_crop_change,
         ).pack(anchor=tk.W)
         ttk.Radiobutton(
@@ -203,27 +262,8 @@ class ImageProcessorApp:
         self.size_entry.insert(0, "2")
         self.size_entry.pack(side=tk.LEFT, padx=5)
 
-        # 拡大・縮小モードの選択部分（左側）
-        operation_frame = ttk.LabelFrame(
-            left_frame, text="拡大・縮小モードの選択", padding=(10, 5)
-        )
-        operation_frame.pack(fill=tk.X, pady=5)
-        self.operation_var = tk.StringVar(value=self.operation)
-        ttk.Radiobutton(
-            operation_frame,
-            text="自動調整（目標サイズより小さければ拡大、大きければ圧縮）",
-            variable=self.operation_var,
-            value="auto",
-            command=self.save_settings
-        ).pack(anchor=tk.W)
-        ttk.Radiobutton(
-            operation_frame, text="圧縮", variable=self.operation_var, value="compress",
-            command=self.save_settings
-        ).pack(anchor=tk.W)
-        ttk.Radiobutton(
-            operation_frame, text="拡大", variable=self.operation_var, value="upscale",
-            command=self.save_settings
-        ).pack(anchor=tk.W)
+        # 自動調整モードを固定で使用
+        self.operation_var = tk.StringVar(value="auto")
 
         # 出力フォーマット選択部分（右側）
         format_frame = ttk.LabelFrame(
@@ -236,12 +276,21 @@ class ImageProcessorApp:
             text="元のフォーマットを維持",
             variable=self.format_var,
             value="original",
+            command=self.save_settings
         ).pack(anchor=tk.W)
         ttk.Radiobutton(
             format_frame,
             text="WebP形式に変換",
             variable=self.format_var,
             value="webp",
+            command=self.save_settings
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            format_frame,
+            text="PNG形式に変換",
+            variable=self.format_var,
+            value="png",
+            command=self.save_settings
         ).pack(anchor=tk.W)
 
         # 出力ファイル名パターン選択部分（左側）
@@ -250,41 +299,12 @@ class ImageProcessorApp:
         )
         filename_frame.pack(fill=tk.X, pady=5)
         
-        self.filename_pattern_var = tk.StringVar(value=self.filename_pattern)
-        ttk.Radiobutton(
-            filename_frame,
-            text="元のファイル名を維持（拡張子のみ変更）",
-            variable=self.filename_pattern_var,
-            value="keep_original",
-            command=self.save_settings
-        ).pack(anchor=tk.W)
-        ttk.Radiobutton(
-            filename_frame,
-            text="デフォルト（元のファイル名_クロップタイプ_サイズ比率）",
-            variable=self.filename_pattern_var,
-            value="default",
-            command=self.save_settings
-        ).pack(anchor=tk.W)
-        ttk.Radiobutton(
-            filename_frame,
-            text="タイムスタンプ（元のファイル名_YYYYMMDD_HHMMSS）",
-            variable=self.filename_pattern_var,
-            value="timestamp",
-            command=self.save_settings
-        ).pack(anchor=tk.W)
-        ttk.Radiobutton(
-            filename_frame,
-            text="連番（元のファイル名_001）",
-            variable=self.filename_pattern_var,
-            value="sequential",
-            command=self.save_settings
-        ).pack(anchor=tk.W)
-        
         # チェックボックス用の変数
         self.include_crop_type = tk.BooleanVar(value=False)
         self.include_size_ratio = tk.BooleanVar(value=False)
         self.include_timestamp = tk.BooleanVar(value=False)
         self.include_sequential = tk.BooleanVar(value=False)
+        self.include_preset_name = tk.BooleanVar(value=False)
         
         ttk.Label(
             filename_frame,
@@ -313,6 +333,12 @@ class ImageProcessorApp:
             filename_frame,
             text="連番（001, 002, ...）",
             variable=self.include_sequential
+        ).pack(anchor=tk.W)
+        
+        ttk.Checkbutton(
+            filename_frame,
+            text="プリセット名（プリセット使用時のみ）",
+            variable=self.include_preset_name
         ).pack(anchor=tk.W)
 
         # プログレスバーとログ出力
@@ -400,7 +426,13 @@ class ImageProcessorApp:
                 messagebox.showerror("エラー", "縦横比には数値を入力してください。")
                 return
 
-        output_format = None if self.format_var.get() == "original" else "webp"
+        format_value = self.format_var.get()
+        if format_value == "original":
+            output_format = None
+        elif format_value == "webp":
+            output_format = "webp"
+        elif format_value == "png":
+            output_format = "png"
 
         self.output_text.delete(1.0, tk.END)
         self.progress["maximum"] = len(files) * 100
@@ -430,8 +462,10 @@ class ImageProcessorApp:
                             "include_crop_type": self.include_crop_type.get(),
                             "include_size_ratio": self.include_size_ratio.get(),
                             "include_timestamp": self.include_timestamp.get(),
-                            "include_sequential": self.include_sequential.get()
-                        }
+                            "include_sequential": self.include_sequential.get(),
+                            "include_preset_name": self.include_preset_name.get()
+                        },
+                        preset_name=self.preset_var.get() if self.preset_var.get() != "カスタム" else None
                     )
 
                     if message:
@@ -469,3 +503,100 @@ class ImageProcessorApp:
             self.master.update_idletasks()
 
         threading.Thread(target=process_images_thread, daemon=True).start()
+    
+    def on_window_configure(self, event):
+        """ウィンドウのサイズや位置が変更されたときの処理"""
+        if event.widget == self.master:
+            # ウィンドウのサイズと位置を取得
+            self.window_width = self.master.winfo_width()
+            self.window_height = self.master.winfo_height()
+            self.window_x = self.master.winfo_x()
+            self.window_y = self.master.winfo_y()
+            
+            # デバウンス用タイマーがあれば停止
+            if hasattr(self, 'save_timer'):
+                self.master.after_cancel(self.save_timer)
+            
+            # 500ms後に設定を保存（頻繁な保存を防ぐため）
+            self.save_timer = self.master.after(500, self.save_settings)
+    
+    def on_preset_change(self, event):
+        """プリセットが選択されたときの処理"""
+        preset = self.preset_var.get()
+        
+        # プリセット定義
+        presets = {
+            "X (Twitter) ヘッダー: 1500x500": {
+                "size_type": "width",
+                "size": "1500",
+                "crop": "custom",
+                "aspect_width": "3",
+                "aspect_height": "1"
+            },
+            "note ヘッダー: 1280x670": {
+                "size_type": "width",
+                "size": "1280",
+                "crop": "custom",
+                "aspect_width": "128",
+                "aspect_height": "67"
+            },
+            "YouTube ヘッダー: 2048x1152": {
+                "size_type": "width",
+                "size": "2048",
+                "crop": "16:9"
+            },
+            "メインビジュアル: 1600px幅": {
+                "size_type": "width",
+                "size": "1600",
+                "crop": "none"
+            },
+            "プロジェクト詳細: 1200px幅": {
+                "size_type": "width",
+                "size": "1200",
+                "crop": "none"
+            },
+            "サムネイル: 400px幅": {
+                "size_type": "width",
+                "size": "400",
+                "crop": "none"
+            },
+            "Instagram 正方形: 1080x1080": {
+                "size_type": "width",
+                "size": "1080",
+                "crop": "square"
+            },
+            "Instagram 縦長: 1080x1350": {
+                "size_type": "width",
+                "size": "1080",
+                "crop": "custom",
+                "aspect_width": "4",
+                "aspect_height": "5"
+            },
+            "Instagram ストーリー: 1080x1920": {
+                "size_type": "width",
+                "size": "1080",
+                "crop": "9:16"
+            }
+        }
+        
+        if preset in presets:
+            settings = presets[preset]
+            
+            # サイズタイプと値を設定
+            self.size_type_var.set(settings["size_type"])
+            self.on_size_type_change()
+            self.size_entry.delete(0, tk.END)
+            self.size_entry.insert(0, settings["size"])
+            
+            # クロップ設定
+            self.crop_var.set(settings["crop"])
+            self.on_crop_change()
+            
+            # カスタム比率の場合
+            if settings["crop"] == "custom" and "aspect_width" in settings:
+                self.aspect_width.delete(0, tk.END)
+                self.aspect_width.insert(0, settings["aspect_width"])
+                self.aspect_height.delete(0, tk.END)
+                self.aspect_height.insert(0, settings["aspect_height"])
+            
+            self.save_settings()

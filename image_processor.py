@@ -51,6 +51,18 @@ def crop_image(img, crop_type, aspect_ratio=None):
             top = (height - new_height) // 2
             bottom = top + new_height
             left, right = 0, width
+    elif crop_type == "9:16":
+        target_ratio = 9 / 16
+        if width / height > target_ratio:
+            new_width = int(height * target_ratio)
+            left = (width - new_width) // 2
+            right = left + new_width
+            top, bottom = 0, height
+        else:
+            new_height = int(width / target_ratio)
+            top = (height - new_height) // 2
+            bottom = top + new_height
+            left, right = 0, width
     else:
         return img
 
@@ -68,7 +80,8 @@ def process_image(
     quality=85,
     progress_callback=None,
     output_format=None,
-    filename_pattern="default"
+    filename_pattern="default",
+    preset_name=None
 ):
     """画像を処理する関数"""
     with Image.open(input_path) as img:
@@ -117,6 +130,15 @@ def process_image(
             if cropped_width != original_width or cropped_height != original_height:
                 output_filename += f"_{crop_type_safe}"
 
+        # プリセット名を追加
+        if filename_pattern.get("include_preset_name", False) and preset_name:
+            # プリセット名から不要な文字を削除
+            preset_safe = preset_name.replace(":", "")
+            preset_safe = preset_safe.replace(" ", "_")
+            preset_safe = preset_safe.replace("/", "_")
+            preset_safe = preset_safe.replace("\\", "_")
+            output_filename += f"_{preset_safe}"
+        
         # タイムスタンプを追加
         if filename_pattern.get("include_timestamp", False):
             from datetime import datetime
@@ -134,6 +156,8 @@ def process_image(
             output_path = os.path.join(output_folder, f"{output_filename}{ext}")
             if output_format == 'webp':
                 img.save(output_path, 'WEBP', quality=quality)
+            elif output_format == 'png':
+                img.save(output_path, 'PNG', optimize=True)
             else:
                 img.save(output_path, quality=quality, optimize=True)
             if progress_callback:
@@ -174,6 +198,8 @@ def process_image(
 
                 if output_format == 'webp':
                     resized_img.save(temp_path, 'WEBP', quality=quality)
+                elif output_format == 'png':
+                    resized_img.save(temp_path, 'PNG', optimize=True)
                 else:
                     if ext.lower() in [".jpg", ".jpeg"]:
                         resized_img.save(temp_path, quality=quality, optimize=True)
