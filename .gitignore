@@ -22,6 +22,7 @@ wheels/
 
 # User settings
 settings.json
+CLAUDE.md
 
 # IDE
 .idea/
