@@ -1,0 +1,79 @@
+{
+    "categories": [
+        {
+            "name": "SNSヘッダー",
+            "presets": [
+                {
+                    "name": "X (Twitter) ヘッダー: 1500x500",
+                    "size_type": "width",
+                    "size": "1500",
+                    "crop": "custom",
+                    "aspect_width": "3",
+                    "aspect_height": "1"
+                },
+                {
+                    "name": "note ヘッダー: 1280x670",
+                    "size_type": "width",
+                    "size": "1280",
+                    "crop": "custom",
+                    "aspect_width": "128",
+                    "aspect_height": "67"
+                },
+                {
+                    "name": "YouTube ヘッダー: 2048x1152",
+                    "size_type": "width",
+                    "size": "2048",
+                    "crop": "16:9"
+                }
+            ]
+        },
+        {
+            "name": "Web画像",
+            "presets": [
+                {
+                    "name": "メインビジュアル: 1600px幅",
+                    "size_type": "width",
+                    "size": "1600",
+                    "crop": "none"
+                },
+                {
+                    "name": "プロジェクト詳細: 1200px幅",
+                    "size_type": "width",
+                    "size": "1200",
+                    "crop": "none"
+                },
+                {
+                    "name": "サムネイル: 400px幅",
+                    "size_type": "width",
+                    "size": "400",
+                    "crop": "none"
+                }
+            ]
+        },
+        {
+            "name": "SNS投稿",
+            "presets": [
+                {
+                    "name": "Instagram 正方形: 1080x1080",
+                    "size_type": "width",
+                    "size": "1080",
+                    "crop": "square"
+                },
+                {
+                    "name": "Instagram 縦長: 1080x1350",
+                    "size_type": "width",
+                    "size": "1080",
+                    "crop": "custom",
+                    "aspect_width": "4",
+                    "aspect_height": "5"
+                },
+                {
+                    "name": "Instagram ストーリー: 1080x1920",
+                    "size_type": "width",
+                    "size": "1080",
+                    "crop": "9:16"
+                }
+            ]
+        }
+    ]
+}

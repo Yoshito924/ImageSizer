@@ -15,6 +15,9 @@ class ImageProcessorApp:
         # 設定をロード
         self.load_settings()
         
+        # プリセットをロード
+        self.load_presets()
+        
         # ウィンドウサイズと位置を設定
         geometry = f"{self.window_width}x{self.window_height}+{self.window_x}+{self.window_y}"
         master.geometry(geometry)
@@ -87,6 +90,31 @@ class ImageProcessorApp:
             self.height_px = 1080
             self.aspect_width_value = 16.0
             self.aspect_height_value = 9.0
+
+    def load_presets(self):
+        """プリセットをJSONファイルからロード"""
+        self.presets_file = os.path.join(os.path.dirname(__file__), "presets.json")
+        self.presets_data = {}
+        self.preset_values = ["カスタム"]
+        
+        try:
+            if os.path.exists(self.presets_file):
+                with open(self.presets_file, "r", encoding="utf-8") as f:
+                    import json
+                    data = json.load(f)
+                    
+                    for category in data.get("categories", []):
+                        category_name = category.get("name", "")
+                        if category_name:
+                            self.preset_values.append(f"--- {category_name} ---")
+                        
+                        for preset in category.get("presets", []):
+                            preset_name = preset.get("name", "")
+                            if preset_name:
+                                self.preset_values.append(preset_name)
+                                self.presets_data[preset_name] = preset
+        except Exception as e:
+            print(f"プリセットロードエラー: {e}")
 
     def save_settings(self):
         """設定をJSONファイルに保存"""
@@ -190,21 +218,7 @@ class ImageProcessorApp:
         self.preset_combo = ttk.Combobox(
             preset_frame,
             textvariable=self.preset_var,
-            values=[
-                "カスタム",
-                "--- SNSヘッダー ---",
-                "X (Twitter) ヘッダー: 1500x500",
-                "note ヘッダー: 1280x670",
-                "YouTube ヘッダー: 2048x1152",
-                "--- Web画像 ---",
-                "メインビジュアル: 1600px幅",
-                "プロジェクト詳細: 1200px幅",
-                "サムネイル: 400px幅",
-                "--- SNS投稿 ---",
-                "Instagram 正方形: 1080x1080",
-                "Instagram 縦長: 1080x1350",
-                "Instagram ストーリー: 1080x1920"
-            ],
+            values=self.preset_values,
             state="readonly",
             width=40
         )
@@ -601,63 +615,13 @@ class ImageProcessorApp:
         """プリセットが選択されたときの処理"""
         preset = self.preset_var.get()
         
-        # プリセット定義
-        presets = {
-            "X (Twitter) ヘッダー: 1500x500": {
-                "size_type": "width",
-                "size": "1500",
-                "crop": "custom",
-                "aspect_width": "3",
-                "aspect_height": "1"
-            },
-            "note ヘッダー: 1280x670": {
-                "size_type": "width",
-                "size": "1280",
-                "crop": "custom",
-                "aspect_width": "128",
-                "aspect_height": "67"
-            },
-            "YouTube ヘッダー: 2048x1152": {
-                "size_type": "width",
-                "size": "2048",
-                "crop": "16:9"
-            },
-            "メインビジュアル: 1600px幅": {
-                "size_type": "width",
-                "size": "1600",
-                "crop": "none"
-            },
-            "プロジェクト詳細: 1200px幅": {
-                "size_type": "width",
-                "size": "1200",
-                "crop": "none"
-            },
-            "サムネイル: 400px幅": {
-                "size_type": "width",
-                "size": "400",
-                "crop": "none"
-            },
-            "Instagram 正方形: 1080x1080": {
-                "size_type": "width",
-                "size": "1080",
-                "crop": "square"
-            },
-            "Instagram 縦長: 1080x1350": {
-                "size_type": "width",
-                "size": "1080",
-                "crop": "custom",
-                "aspect_width": "4",
-                "aspect_height": "5"
-            },
-            "Instagram ストーリー: 1080x1920": {
-                "size_type": "width",
-                "size": "1080",
-                "crop": "9:16"
-            }
-        }
+        # カテゴリータイトルの場合は何もしない
+        if preset.startswith("---") or preset == "カスタム":
+            return
         
-        if preset in presets:
-            settings = presets[preset]
+        # プリセットデータから設定を取得
+        if preset in self.presets_data:
+            settings = self.presets_data[preset]
             
             # サイズタイプと値を設定
             self.size_type_var.set(settings["size_type"])
