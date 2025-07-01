@@ -616,7 +616,13 @@ class ImageProcessorApp:
         preset = self.preset_var.get()
         
         # カテゴリータイトルの場合は何もしない
-        if preset.startswith("---") or preset == "カスタム":
+        if preset.startswith("---"):
+            return
+        
+        # カスタムの場合はプリセット名チェックを外す
+        if preset == "カスタム":
+            self.include_preset_name.set(False)
+            self.save_settings()
             return
         
         # プリセットデータから設定を取得
@@ -639,5 +645,8 @@ class ImageProcessorApp:
                 self.aspect_width.insert(0, settings["aspect_width"])
                 self.aspect_height.delete(0, tk.END)
                 self.aspect_height.insert(0, settings["aspect_height"])
+            
+            # プリセット名をファイル名に含めるチェックボックスを有効にする
+            self.include_preset_name.set(True)
             
             self.save_settings()
