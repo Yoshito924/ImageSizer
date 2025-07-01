@@ -43,6 +43,13 @@ class ImageProcessorApp:
                     self.window_height = settings.get("window_height", 600)
                     self.window_x = settings.get("window_x", 100)
                     self.window_y = settings.get("window_y", 100)
+                    self.preset = settings.get("preset", "カスタム")
+                    self.target_size = settings.get("target_size", 2.0)
+                    self.mb_size = settings.get("mb_size", 2)
+                    self.width_px = settings.get("width_px", 1920)
+                    self.height_px = settings.get("height_px", 1080)
+                    self.aspect_width_value = settings.get("aspect_width", 16.0)
+                    self.aspect_height_value = settings.get("aspect_height", 9.0)
             else:
                 self.always_on_top = False
                 self.crop_type = "none"
@@ -54,6 +61,13 @@ class ImageProcessorApp:
                 self.window_height = 600
                 self.window_x = 100
                 self.window_y = 100
+                self.preset = "カスタム"
+                self.target_size = 2.0
+                self.mb_size = 2
+                self.width_px = 1920
+                self.height_px = 1080
+                self.aspect_width_value = 16.0
+                self.aspect_height_value = 9.0
         except Exception as e:
             print(f"設定ロードエラー: {e}")
             self.always_on_top = False
@@ -66,17 +80,64 @@ class ImageProcessorApp:
             self.window_height = 600
             self.window_x = 100
             self.window_y = 100
+            self.preset = "カスタム"
+            self.target_size = 2.0
+            self.mb_size = 2
+            self.width_px = 1920
+            self.height_px = 1080
+            self.aspect_width_value = 16.0
+            self.aspect_height_value = 9.0
 
     def save_settings(self):
         """設定をJSONファイルに保存"""
         try:
+            # GUI要素から現在の値を取得
+            target_size = None
+            mb_size = None
+            width_px = None
+            height_px = None
+            
+            try:
+                size_value = float(self.size_entry.get()) if hasattr(self, 'size_entry') and self.size_entry.winfo_exists() else None
+                if size_value is not None:
+                    size_type = self.size_type_var.get() if hasattr(self, 'size_type_var') else self.size_type
+                    if size_type == "mb":
+                        mb_size = size_value
+                        target_size = size_value
+                    elif size_type == "width":
+                        width_px = int(size_value)
+                        target_size = size_value
+                    elif size_type == "height":
+                        height_px = int(size_value)
+                        target_size = size_value
+            except (ValueError, tk.TclError):
+                pass
+            
+            # アスペクト比の値を取得
+            aspect_width = None
+            aspect_height = None
+            try:
+                if hasattr(self, 'aspect_width') and self.aspect_width.winfo_exists():
+                    aspect_width = float(self.aspect_width.get())
+                if hasattr(self, 'aspect_height') and self.aspect_height.winfo_exists():
+                    aspect_height = float(self.aspect_height.get())
+            except (ValueError, tk.TclError):
+                pass
+            
             settings = {
                 "always_on_top": self.always_on_top,
-                "crop_type": self.crop_var.get(),
-                "size_type": self.size_type_var.get(),
-                "operation": self.operation_var.get(),
-                "output_format": self.format_var.get(),
-                "filename_pattern": self.filename_pattern_var.get(),
+                "crop_type": self.crop_var.get() if hasattr(self, 'crop_var') else self.crop_type,
+                "size_type": self.size_type_var.get() if hasattr(self, 'size_type_var') else self.size_type,
+                "operation": self.operation_var.get() if hasattr(self, 'operation_var') else self.operation,
+                "output_format": self.format_var.get() if hasattr(self, 'format_var') else self.output_format,
+                "filename_pattern": self.filename_pattern_var.get() if hasattr(self, 'filename_pattern_var') else self.filename_pattern,
+                "preset": self.preset_var.get() if hasattr(self, 'preset_var') else getattr(self, 'preset', "カスタム"),
+                "target_size": target_size if target_size is not None else getattr(self, 'target_size', 2.0),
+                "mb_size": mb_size if mb_size is not None else getattr(self, 'mb_size', 2),
+                "width_px": width_px if width_px is not None else getattr(self, 'width_px', 1920),
+                "height_px": height_px if height_px is not None else getattr(self, 'height_px', 1080),
+                "aspect_width": aspect_width if aspect_width is not None else getattr(self, 'aspect_width_value', 16.0),
+                "aspect_height": aspect_height if aspect_height is not None else getattr(self, 'aspect_height_value', 9.0),
                 "window_width": self.window_width,
                 "window_height": self.window_height,
                 "window_x": self.window_x,
@@ -125,7 +186,7 @@ class ImageProcessorApp:
         preset_frame.pack(fill=tk.X, padx=10, pady=5)
         
         ttk.Label(preset_frame, text="プリセット:").pack(side=tk.LEFT, padx=(0, 5))
-        self.preset_var = tk.StringVar(value="カスタム")
+        self.preset_var = tk.StringVar(value=getattr(self, 'preset', "カスタム"))
         self.preset_combo = ttk.Combobox(
             preset_frame,
             textvariable=self.preset_var,
@@ -214,10 +275,15 @@ class ImageProcessorApp:
         self.aspect_ratio_frame.pack(pady=5)
         ttk.Label(self.aspect_ratio_frame, text="縦横比:").pack(side=tk.LEFT)
         self.aspect_width = ttk.Entry(self.aspect_ratio_frame, width=5)
+        self.aspect_width.insert(0, str(getattr(self, 'aspect_width_value', 16.0)))
         self.aspect_width.pack(side=tk.LEFT)
         ttk.Label(self.aspect_ratio_frame, text=":").pack(side=tk.LEFT)
         self.aspect_height = ttk.Entry(self.aspect_ratio_frame, width=5)
+        self.aspect_height.insert(0, str(getattr(self, 'aspect_height_value', 9.0)))
         self.aspect_height.pack(side=tk.LEFT)
+        # アスペクト比入力値が変更されたときに保存
+        self.aspect_width.bind("<KeyRelease>", lambda e: self.master.after(1000, self.save_settings))
+        self.aspect_height.bind("<KeyRelease>", lambda e: self.master.after(1000, self.save_settings))
         self.aspect_ratio_frame.pack_forget()
 
         # サイズ変更設定部分（右側）
@@ -259,8 +325,19 @@ class ImageProcessorApp:
         self.size_label = ttk.Label(self.size_input_frame, text="目標サイズ (MB):")
         self.size_label.pack(side=tk.LEFT)
         self.size_entry = ttk.Entry(self.size_input_frame, width=10)
-        self.size_entry.insert(0, "2")
+        # 設定から初期値を取得
+        if hasattr(self, 'size_type') and self.size_type == "mb":
+            initial_value = str(getattr(self, 'mb_size', 2))
+        elif hasattr(self, 'size_type') and self.size_type == "width":
+            initial_value = str(getattr(self, 'width_px', 1920))
+        elif hasattr(self, 'size_type') and self.size_type == "height":
+            initial_value = str(getattr(self, 'height_px', 1080))
+        else:
+            initial_value = "2"
+        self.size_entry.insert(0, initial_value)
         self.size_entry.pack(side=tk.LEFT, padx=5)
+        # サイズ入力値が変更されたときに保存
+        self.size_entry.bind("<KeyRelease>", lambda e: self.master.after(1000, self.save_settings))
 
         # 自動調整モードを固定で使用
         self.operation_var = tk.StringVar(value="auto")
