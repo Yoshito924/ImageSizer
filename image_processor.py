@@ -63,6 +63,30 @@ def crop_image(img, crop_type, aspect_ratio=None):
             top = (height - new_height) // 2
             bottom = top + new_height
             left, right = 0, width
+    elif crop_type == "1:√2":
+        target_ratio = 1 / (2 ** 0.5)  # 1:√2 ≈ 1:1.414
+        if width / height > target_ratio:
+            new_width = int(height * target_ratio)
+            left = (width - new_width) // 2
+            right = left + new_width
+            top, bottom = 0, height
+        else:
+            new_height = int(width / target_ratio)
+            top = (height - new_height) // 2
+            bottom = top + new_height
+            left, right = 0, width
+    elif crop_type == "√2:1":
+        target_ratio = 2 ** 0.5  # √2:1 ≈ 1.414:1
+        if width / height > target_ratio:
+            new_width = int(height * target_ratio)
+            left = (width - new_width) // 2
+            right = left + new_width
+            top, bottom = 0, height
+        else:
+            new_height = int(width / target_ratio)
+            top = (height - new_height) // 2
+            bottom = top + new_height
+            left, right = 0, width
     else:
         return img
 

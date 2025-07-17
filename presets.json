@@ -51,6 +51,59 @@
             ]
         },
         {
+            "name": "用紙サイズ",
+            "presets": [
+                {
+                    "name": "A4縦 (210x297mm): 2480x3508",
+                    "size_type": "width",
+                    "size": "2480",
+                    "crop": "1:√2"
+                },
+                {
+                    "name": "A4横 (297x210mm): 3508x2480",
+                    "size_type": "width",
+                    "size": "3508",
+                    "crop": "√2:1"
+                },
+                {
+                    "name": "A5縦 (148x210mm): 1748x2480",
+                    "size_type": "width",
+                    "size": "1748",
+                    "crop": "1:√2"
+                },
+                {
+                    "name": "A5横 (210x148mm): 2480x1748",
+                    "size_type": "width",
+                    "size": "2480",
+                    "crop": "√2:1"
+                },
+                {
+                    "name": "B4縦 (257x364mm): 3037x4299",
+                    "size_type": "width",
+                    "size": "3037",
+                    "crop": "1:√2"
+                },
+                {
+                    "name": "B4横 (364x257mm): 4299x3037",
+                    "size_type": "width",
+                    "size": "4299",
+                    "crop": "√2:1"
+                },
+                {
+                    "name": "B5縦 (182x257mm): 2150x3037",
+                    "size_type": "width",
+                    "size": "2150",
+                    "crop": "1:√2"
+                },
+                {
+                    "name": "B5横 (257x182mm): 3037x2150",
+                    "size_type": "width",
+                    "size": "3037",
+                    "crop": "√2:1"
+                }
+            ]
+        },
+        {
             "name": "SNS投稿",
             "presets": [
                 {

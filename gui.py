@@ -278,6 +278,20 @@ class ImageProcessorApp:
         ).pack(anchor=tk.W)
         ttk.Radiobutton(
             crop_frame,
+            text="1:√2（縦長・A4等）",
+            variable=self.crop_var,
+            value="1:√2",
+            command=self.on_crop_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            crop_frame,
+            text="√2:1（横長・A4等）",
+            variable=self.crop_var,
+            value="√2:1",
+            command=self.on_crop_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            crop_frame,
             text="カスタム比率",
             variable=self.crop_var,
             value="custom",

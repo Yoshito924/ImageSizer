@@ -4,7 +4,8 @@
       "Bash(find:*)",
       "Bash(python test_png_conversion.py:*)",
       "Bash(python3:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(python:*)"
     ],
     "deny": []
   }
