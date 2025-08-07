@@ -5,7 +5,8 @@
       "Bash(python test_png_conversion.py:*)",
       "Bash(python3:*)",
       "Bash(rm:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(pip install:*)"
     ],
     "deny": []
   }

@@ -49,6 +49,7 @@ class ImageProcessorApp:
                     self.preset = settings.get("preset", "カスタム")
                     self.target_size = settings.get("target_size", 2.0)
                     self.mb_size = settings.get("mb_size", 2)
+                    self.kb_size = settings.get("kb_size", 500)
                     self.width_px = settings.get("width_px", 1920)
                     self.height_px = settings.get("height_px", 1080)
                     self.aspect_width_value = settings.get("aspect_width", 16.0)
@@ -67,6 +68,7 @@ class ImageProcessorApp:
                 self.preset = "カスタム"
                 self.target_size = 2.0
                 self.mb_size = 2
+                self.kb_size = 500
                 self.width_px = 1920
                 self.height_px = 1080
                 self.aspect_width_value = 16.0
@@ -86,6 +88,7 @@ class ImageProcessorApp:
             self.preset = "カスタム"
             self.target_size = 2.0
             self.mb_size = 2
+            self.kb_size = 500
             self.width_px = 1920
             self.height_px = 1080
             self.aspect_width_value = 16.0
@@ -122,6 +125,7 @@ class ImageProcessorApp:
             # GUI要素から現在の値を取得
             target_size = None
             mb_size = None
+            kb_size = None
             width_px = None
             height_px = None
             
@@ -131,6 +135,9 @@ class ImageProcessorApp:
                     size_type = self.size_type_var.get() if hasattr(self, 'size_type_var') else self.size_type
                     if size_type == "mb":
                         mb_size = size_value
+                        target_size = size_value
+                    elif size_type == "kb":
+                        kb_size = size_value
                         target_size = size_value
                     elif size_type == "width":
                         width_px = int(size_value)
@@ -162,6 +169,7 @@ class ImageProcessorApp:
                 "preset": self.preset_var.get() if hasattr(self, 'preset_var') else getattr(self, 'preset', "カスタム"),
                 "target_size": target_size if target_size is not None else getattr(self, 'target_size', 2.0),
                 "mb_size": mb_size if mb_size is not None else getattr(self, 'mb_size', 2),
+                "kb_size": kb_size if kb_size is not None else getattr(self, 'kb_size', 500),
                 "width_px": width_px if width_px is not None else getattr(self, 'width_px', 1920),
                 "height_px": height_px if height_px is not None else getattr(self, 'height_px', 1080),
                 "aspect_width": aspect_width if aspect_width is not None else getattr(self, 'aspect_width_value', 16.0),
@@ -334,6 +342,13 @@ class ImageProcessorApp:
         ).pack(anchor=tk.W)
         ttk.Radiobutton(
             size_frame,
+            text="KBで指定",
+            variable=self.size_type_var,
+            value="kb",
+            command=self.on_size_type_change,
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            size_frame,
             text="横ピクセルで指定",
             variable=self.size_type_var,
             value="width",
@@ -356,6 +371,8 @@ class ImageProcessorApp:
         # 設定から初期値を取得
         if hasattr(self, 'size_type') and self.size_type == "mb":
             initial_value = str(getattr(self, 'mb_size', 2))
+        elif hasattr(self, 'size_type') and self.size_type == "kb":
+            initial_value = str(getattr(self, 'kb_size', 500))
         elif hasattr(self, 'size_type') and self.size_type == "width":
             initial_value = str(getattr(self, 'width_px', 1920))
         elif hasattr(self, 'size_type') and self.size_type == "height":
@@ -492,6 +509,10 @@ class ImageProcessorApp:
                 self.size_label.config(text="目標サイズ (MB):")
                 self.size_entry.delete(0, tk.END)
                 self.size_entry.insert(0, "2")
+            elif size_type == "kb":
+                self.size_label.config(text="目標サイズ (KB):")
+                self.size_entry.delete(0, tk.END)
+                self.size_entry.insert(0, "500")
             elif size_type == "width":
                 self.size_label.config(text="目標サイズ (横px):")
                 self.size_entry.delete(0, tk.END)
