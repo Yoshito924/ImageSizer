@@ -1,4 +1,4 @@
-from PIL import Image
+from PIL import Image, ImageOps
 import os
 import tempfile
 import shutil
@@ -76,6 +76,9 @@ def process_image(
 ):
     """画像を処理する関数"""
     with Image.open(input_path) as img:
+        # EXIFのOrientationタグを適用して画像を正しい向きに回転
+        img = ImageOps.exif_transpose(img)
+        
         original_size = os.path.getsize(input_path) / (1024 * 1024)
         original_width, original_height = img.size
 
