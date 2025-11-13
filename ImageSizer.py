@@ -7,6 +7,14 @@ from tkinterdnd2 import TkinterDnD, DND_FILES
 import tempfile
 import shutil
 
+# HEIC形式のサポートを追加
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    # pillow-heifがインストールされていない場合は警告を出すが、処理は続行
+    pass
+
 
 # 画像をクロップする関数
 def crop_image(img, crop_type, aspect_ratio=None):
