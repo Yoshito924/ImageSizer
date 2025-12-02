@@ -26,12 +26,16 @@ class ImageProcessorApp:
         # プリセットをロード
         self.load_presets()
         
-        # ウィンドウサイズと位置を設定
+        # ウィンドウサイズと位置を設定（画面外にならないように調整）
+        self.validate_window_position()
         geometry = f"{self.window_width}x{self.window_height}+{self.window_x}+{self.window_y}"
         master.geometry(geometry)
         
         # ウィンドウ位置とサイズ変更のイベントをバインド
         master.bind("<Configure>", self.on_window_configure)
+        
+        # アプリケーション終了時に設定を保存
+        master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.create_widgets()
         self.setup_drop_target()
@@ -60,6 +64,7 @@ class ImageProcessorApp:
                     self.kb_size = settings.get("kb_size", 500)
                     self.width_px = settings.get("width_px", 1920)
                     self.height_px = settings.get("height_px", 1080)
+                    self.long_edge_px = settings.get("long_edge_px", 1920)
                     self.aspect_width_value = settings.get("aspect_width", 16.0)
                     self.aspect_height_value = settings.get("aspect_height", 9.0)
             else:
@@ -79,6 +84,7 @@ class ImageProcessorApp:
                 self.kb_size = 500
                 self.width_px = 1920
                 self.height_px = 1080
+                self.long_edge_px = 1920
                 self.aspect_width_value = 16.0
                 self.aspect_height_value = 9.0
         except Exception as e:
@@ -99,6 +105,7 @@ class ImageProcessorApp:
             self.kb_size = 500
             self.width_px = 1920
             self.height_px = 1080
+            self.long_edge_px = 1920
             self.aspect_width_value = 16.0
             self.aspect_height_value = 9.0
 
@@ -136,6 +143,7 @@ class ImageProcessorApp:
             kb_size = None
             width_px = None
             height_px = None
+            long_edge_px = None
             
             try:
                 size_value = float(self.size_entry.get()) if hasattr(self, 'size_entry') and self.size_entry.winfo_exists() else None
@@ -152,6 +160,9 @@ class ImageProcessorApp:
                         target_size = size_value
                     elif size_type == "height":
                         height_px = int(size_value)
+                        target_size = size_value
+                    elif size_type == "long_edge":
+                        long_edge_px = int(size_value)
                         target_size = size_value
             except (ValueError, tk.TclError):
                 pass
@@ -180,6 +191,7 @@ class ImageProcessorApp:
                 "kb_size": kb_size if kb_size is not None else getattr(self, 'kb_size', 500),
                 "width_px": width_px if width_px is not None else getattr(self, 'width_px', 1920),
                 "height_px": height_px if height_px is not None else getattr(self, 'height_px', 1080),
+                "long_edge_px": long_edge_px if long_edge_px is not None else getattr(self, 'long_edge_px', 1920),
                 "aspect_width": aspect_width if aspect_width is not None else getattr(self, 'aspect_width_value', 16.0),
                 "aspect_height": aspect_height if aspect_height is not None else getattr(self, 'aspect_height_value', 9.0),
                 "window_width": self.window_width,
@@ -369,24 +381,40 @@ class ImageProcessorApp:
             value="height",
             command=self.on_size_type_change,
         ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            size_frame,
+            text="長辺で指定",
+            variable=self.size_type_var,
+            value="long_edge",
+            command=self.on_size_type_change,
+        ).pack(anchor=tk.W)
 
         # サイズ入力用のフレーム
         self.size_input_frame = ttk.Frame(size_frame)
         self.size_input_frame.pack(pady=5)
-        self.size_label = ttk.Label(self.size_input_frame, text="目標サイズ (MB):")
-        self.size_label.pack(side=tk.LEFT)
-        self.size_entry = ttk.Entry(self.size_input_frame, width=10)
-        # 設定から初期値を取得
+        # 設定から初期値とラベルを取得
         if hasattr(self, 'size_type') and self.size_type == "mb":
             initial_value = str(getattr(self, 'mb_size', 2))
+            label_text = "目標サイズ (MB):"
         elif hasattr(self, 'size_type') and self.size_type == "kb":
             initial_value = str(getattr(self, 'kb_size', 500))
+            label_text = "目標サイズ (KB):"
         elif hasattr(self, 'size_type') and self.size_type == "width":
             initial_value = str(getattr(self, 'width_px', 1920))
+            label_text = "目標サイズ (横px):"
         elif hasattr(self, 'size_type') and self.size_type == "height":
             initial_value = str(getattr(self, 'height_px', 1080))
+            label_text = "目標サイズ (縦px):"
+        elif hasattr(self, 'size_type') and self.size_type == "long_edge":
+            initial_value = str(getattr(self, 'long_edge_px', 1920))
+            label_text = "目標サイズ (長辺px):"
         else:
             initial_value = "2"
+            label_text = "目標サイズ (MB):"
+        
+        self.size_label = ttk.Label(self.size_input_frame, text=label_text)
+        self.size_label.pack(side=tk.LEFT)
+        self.size_entry = ttk.Entry(self.size_input_frame, width=10)
         self.size_entry.insert(0, initial_value)
         self.size_entry.pack(side=tk.LEFT, padx=5)
         # サイズ入力値が変更されたときに保存
@@ -525,10 +553,14 @@ class ImageProcessorApp:
                 self.size_label.config(text="目標サイズ (横px):")
                 self.size_entry.delete(0, tk.END)
                 self.size_entry.insert(0, "1920")
-            else:  # height
+            elif size_type == "height":
                 self.size_label.config(text="目標サイズ (縦px):")
                 self.size_entry.delete(0, tk.END)
                 self.size_entry.insert(0, "1080")
+            elif size_type == "long_edge":
+                self.size_label.config(text="目標サイズ (長辺px):")
+                self.size_entry.delete(0, tk.END)
+                self.size_entry.insert(0, "1920")
         self.save_settings()
 
     def process_images(self):
@@ -653,6 +685,54 @@ class ImageProcessorApp:
             
             # 500ms後に設定を保存（頻繁な保存を防ぐため）
             self.save_timer = self.master.after(500, self.save_settings)
+    
+    def validate_window_position(self):
+        """ウィンドウ位置が画面内に収まるように調整"""
+        try:
+            # 仮のTkウィンドウで画面サイズを取得
+            screen_width = self.master.winfo_screenwidth()
+            screen_height = self.master.winfo_screenheight()
+            
+            # ウィンドウが完全に画面外にある場合はデフォルト位置に戻す
+            # 最低でもウィンドウの一部（100px）が画面内に表示されるようにする
+            min_visible = 100
+            
+            # X座標の調整
+            if self.window_x + self.window_width < min_visible:
+                # ウィンドウが左に行きすぎている
+                self.window_x = 100
+            elif self.window_x > screen_width - min_visible:
+                # ウィンドウが右に行きすぎている
+                self.window_x = screen_width - self.window_width - 100
+            
+            # Y座標の調整
+            if self.window_y < 0:
+                # ウィンドウが上に行きすぎている
+                self.window_y = 100
+            elif self.window_y > screen_height - min_visible:
+                # ウィンドウが下に行きすぎている
+                self.window_y = screen_height - self.window_height - 100
+                
+        except Exception as e:
+            print(f"ウィンドウ位置検証エラー: {e}")
+            # エラーが発生した場合はデフォルト位置
+            self.window_x = 100
+            self.window_y = 100
+    
+    def on_closing(self):
+        """アプリケーション終了時の処理"""
+        # 保留中のタイマーがあればキャンセル
+        if hasattr(self, 'save_timer'):
+            try:
+                self.master.after_cancel(self.save_timer)
+            except:
+                pass
+        
+        # 最終的な設定を保存
+        self.save_settings()
+        
+        # ウィンドウを閉じる
+        self.master.destroy()
     
     def on_preset_change(self, event):
         """プリセットが選択されたときの処理"""

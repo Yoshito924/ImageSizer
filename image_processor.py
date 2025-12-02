@@ -181,8 +181,13 @@ def process_image(
             target_size = int(target_size)
             if size_type == "width":
                 target_dimension = cropped_width
-            else:
+            elif size_type == "height":
                 target_dimension = cropped_height
+            elif size_type == "long_edge":
+                # 長辺を基準にリサイズ（幅と高さの大きい方）
+                target_dimension = max(cropped_width, cropped_height)
+            else:
+                target_dimension = cropped_width  # デフォルト
 
             if operation == "auto":
                 operation = "compress" if target_dimension > target_size else "upscale"
@@ -227,14 +232,24 @@ def process_image(
                     condition = (
                         operation == "compress" and new_size <= target_size_mb
                     ) or (operation == "upscale" and new_size >= target_size_mb)
+                elif size_type == "kb":
+                    condition = (
+                        operation == "compress" and new_size <= target_size_mb
+                    ) or (operation == "upscale" and new_size >= target_size_mb)
                 elif size_type == "width":
                     condition = (
                         operation == "compress" and new_width <= target_size
                     ) or (operation == "upscale" and new_width >= target_size)
-                else:
+                elif size_type == "height":
                     condition = (
                         operation == "compress" and new_height <= target_size
                     ) or (operation == "upscale" and new_height >= target_size)
+                elif size_type == "long_edge":
+                    # 長辺（幅と高さの大きい方）で判定
+                    new_long_edge = max(new_width, new_height)
+                    condition = (
+                        operation == "compress" and new_long_edge <= target_size
+                    ) or (operation == "upscale" and new_long_edge >= target_size)
 
                 # 有効なファイルを保存
                 last_valid_path = temp_path
