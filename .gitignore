@@ -24,6 +24,9 @@ wheels/
 settings.json
 CLAUDE.md
 
+# Output directory
+output/
+
 # IDE
 .idea/
 .vscode/

@@ -67,6 +67,13 @@ class ImageProcessorApp:
                     self.long_edge_px = settings.get("long_edge_px", 1920)
                     self.aspect_width_value = settings.get("aspect_width", 16.0)
                     self.aspect_height_value = settings.get("aspect_height", 9.0)
+                    # ファイル名パターンのチェックボックス設定
+                    self.include_crop_type_value = settings.get("include_crop_type", False)
+                    self.include_size_ratio_value = settings.get("include_size_ratio", False)
+                    self.include_timestamp_value = settings.get("include_timestamp", False)
+                    self.include_sequential_value = settings.get("include_sequential", False)
+                    self.include_preset_name_value = settings.get("include_preset_name", False)
+                    self.output_destination = settings.get("output_destination", "original")
             else:
                 self.always_on_top = False
                 self.crop_type = "none"
@@ -87,6 +94,12 @@ class ImageProcessorApp:
                 self.long_edge_px = 1920
                 self.aspect_width_value = 16.0
                 self.aspect_height_value = 9.0
+                self.include_crop_type_value = False
+                self.include_size_ratio_value = False
+                self.include_timestamp_value = False
+                self.include_sequential_value = False
+                self.include_preset_name_value = False
+                self.output_destination = "original"
         except Exception as e:
             print(f"設定ロードエラー: {e}")
             self.always_on_top = False
@@ -108,6 +121,12 @@ class ImageProcessorApp:
             self.long_edge_px = 1920
             self.aspect_width_value = 16.0
             self.aspect_height_value = 9.0
+            self.include_crop_type_value = False
+            self.include_size_ratio_value = False
+            self.include_timestamp_value = False
+            self.include_sequential_value = False
+            self.include_preset_name_value = False
+            self.output_destination = "original"
 
     def load_presets(self):
         """プリセットをJSONファイルからロード"""
@@ -194,6 +213,12 @@ class ImageProcessorApp:
                 "long_edge_px": long_edge_px if long_edge_px is not None else getattr(self, 'long_edge_px', 1920),
                 "aspect_width": aspect_width if aspect_width is not None else getattr(self, 'aspect_width_value', 16.0),
                 "aspect_height": aspect_height if aspect_height is not None else getattr(self, 'aspect_height_value', 9.0),
+                "include_crop_type": self.include_crop_type.get() if hasattr(self, 'include_crop_type') else getattr(self, 'include_crop_type_value', False),
+                "include_size_ratio": self.include_size_ratio.get() if hasattr(self, 'include_size_ratio') else getattr(self, 'include_size_ratio_value', False),
+                "include_timestamp": self.include_timestamp.get() if hasattr(self, 'include_timestamp') else getattr(self, 'include_timestamp_value', False),
+                "include_sequential": self.include_sequential.get() if hasattr(self, 'include_sequential') else getattr(self, 'include_sequential_value', False),
+                "include_preset_name": self.include_preset_name.get() if hasattr(self, 'include_preset_name') else getattr(self, 'include_preset_name_value', False),
+                "output_destination": self.output_dest_var.get() if hasattr(self, 'output_dest_var') else getattr(self, 'output_destination', "original"),
                 "window_width": self.window_width,
                 "window_height": self.window_height,
                 "window_x": self.window_x,
@@ -340,7 +365,9 @@ class ImageProcessorApp:
         # アスペクト比入力値が変更されたときに保存
         self.aspect_width.bind("<KeyRelease>", lambda e: self.master.after(1000, self.save_settings))
         self.aspect_height.bind("<KeyRelease>", lambda e: self.master.after(1000, self.save_settings))
-        self.aspect_ratio_frame.pack_forget()
+        # 設定からクロップタイプがcustomの場合は表示、それ以外は非表示
+        if self.crop_type != "custom":
+            self.aspect_ratio_frame.pack_forget()
 
         # サイズ変更設定部分（右側）
         size_frame = ttk.LabelFrame(right_frame, text="目標サイズ設定", padding=(10, 5))
@@ -419,6 +446,10 @@ class ImageProcessorApp:
         self.size_entry.pack(side=tk.LEFT, padx=5)
         # サイズ入力値が変更されたときに保存
         self.size_entry.bind("<KeyRelease>", lambda e: self.master.after(1000, self.save_settings))
+        
+        # 設定からサイズタイプが"none"の場合は入力フレームを非表示
+        if self.size_type == "none":
+            self.size_input_frame.pack_forget()
 
         # 自動調整モードを固定で使用
         self.operation_var = tk.StringVar(value="auto")
@@ -451,18 +482,44 @@ class ImageProcessorApp:
             command=self.save_settings
         ).pack(anchor=tk.W)
 
+        # 出力先選択部分（右側）
+        output_dest_frame = ttk.LabelFrame(
+            right_frame, text="出力先", padding=(10, 5)
+        )
+        output_dest_frame.pack(fill=tk.X, pady=5)
+        self.output_dest_var = tk.StringVar(value=getattr(self, 'output_destination', 'original'))
+        ttk.Radiobutton(
+            output_dest_frame,
+            text="元のフォルダ",
+            variable=self.output_dest_var,
+            value="original",
+            command=self.save_settings
+        ).pack(anchor=tk.W)
+        ttk.Radiobutton(
+            output_dest_frame,
+            text="outputフォルダ",
+            variable=self.output_dest_var,
+            value="output",
+            command=self.save_settings
+        ).pack(anchor=tk.W)
+        ttk.Button(
+            output_dest_frame,
+            text="出力先フォルダを開く",
+            command=self.open_output_folder
+        ).pack(anchor=tk.W, pady=(5, 0))
+
         # 出力ファイル名パターン選択部分（左側）
         filename_frame = ttk.LabelFrame(
             left_frame, text="出力ファイル名パターン", padding=(10, 5)
         )
         filename_frame.pack(fill=tk.X, pady=5)
         
-        # チェックボックス用の変数
-        self.include_crop_type = tk.BooleanVar(value=False)
-        self.include_size_ratio = tk.BooleanVar(value=False)
-        self.include_timestamp = tk.BooleanVar(value=False)
-        self.include_sequential = tk.BooleanVar(value=False)
-        self.include_preset_name = tk.BooleanVar(value=False)
+        # チェックボックス用の変数（設定から復元）
+        self.include_crop_type = tk.BooleanVar(value=getattr(self, 'include_crop_type_value', False))
+        self.include_size_ratio = tk.BooleanVar(value=getattr(self, 'include_size_ratio_value', False))
+        self.include_timestamp = tk.BooleanVar(value=getattr(self, 'include_timestamp_value', False))
+        self.include_sequential = tk.BooleanVar(value=getattr(self, 'include_sequential_value', False))
+        self.include_preset_name = tk.BooleanVar(value=getattr(self, 'include_preset_name_value', False))
         
         ttk.Label(
             filename_frame,
@@ -528,6 +585,33 @@ class ImageProcessorApp:
         )
         self.add_files(files)
 
+    def open_output_folder(self):
+        """出力先フォルダをエクスプローラーで開く"""
+        import subprocess
+        import platform
+
+        if self.output_dest_var.get() == "output":
+            folder_path = os.path.join(os.path.dirname(__file__), "output")
+            # フォルダが存在しない場合は作成
+            if not os.path.exists(folder_path):
+                os.makedirs(folder_path)
+        else:
+            # 元のフォルダが選択されている場合、リストの最初のファイルのフォルダを開く
+            files = list(self.file_listbox.get(0, tk.END))
+            if files:
+                folder_path = os.path.dirname(files[0])
+            else:
+                messagebox.showinfo("情報", "ファイルが選択されていません。")
+                return
+
+        # OSに応じてフォルダを開く
+        if platform.system() == "Windows":
+            os.startfile(folder_path)
+        elif platform.system() == "Darwin":  # macOS
+            subprocess.run(["open", folder_path])
+        else:  # Linux
+            subprocess.run(["xdg-open", folder_path])
+
     def on_crop_change(self):
         if self.crop_var.get() == "custom":
             self.aspect_ratio_frame.pack()
@@ -544,23 +628,23 @@ class ImageProcessorApp:
             if size_type == "mb":
                 self.size_label.config(text="目標サイズ (MB):")
                 self.size_entry.delete(0, tk.END)
-                self.size_entry.insert(0, "2")
+                self.size_entry.insert(0, str(getattr(self, 'mb_size', 2)))
             elif size_type == "kb":
                 self.size_label.config(text="目標サイズ (KB):")
                 self.size_entry.delete(0, tk.END)
-                self.size_entry.insert(0, "500")
+                self.size_entry.insert(0, str(getattr(self, 'kb_size', 500)))
             elif size_type == "width":
                 self.size_label.config(text="目標サイズ (横px):")
                 self.size_entry.delete(0, tk.END)
-                self.size_entry.insert(0, "1920")
+                self.size_entry.insert(0, str(getattr(self, 'width_px', 1920)))
             elif size_type == "height":
                 self.size_label.config(text="目標サイズ (縦px):")
                 self.size_entry.delete(0, tk.END)
-                self.size_entry.insert(0, "1080")
+                self.size_entry.insert(0, str(getattr(self, 'height_px', 1080)))
             elif size_type == "long_edge":
                 self.size_label.config(text="目標サイズ (長辺px):")
                 self.size_entry.delete(0, tk.END)
-                self.size_entry.insert(0, "1920")
+                self.size_entry.insert(0, str(getattr(self, 'long_edge_px', 1920)))
         self.save_settings()
 
     def process_images(self):
@@ -609,9 +693,19 @@ class ImageProcessorApp:
             self.master.update_idletasks()
 
         def process_images_thread():
+            # 出力先の決定
+            output_dest = self.output_dest_var.get()
+            if output_dest == "output":
+                output_base = os.path.join(os.path.dirname(__file__), "output")
+                if not os.path.exists(output_base):
+                    os.makedirs(output_base)
+
             for i, file in enumerate(files):
                 try:
-                    output_folder = os.path.dirname(file)
+                    if output_dest == "output":
+                        output_folder = output_base
+                    else:
+                        output_folder = os.path.dirname(file)
                     output_path, size_ratio, message = process_image(
                         file,
                         output_folder,
