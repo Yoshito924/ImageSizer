@@ -1,4 +1,7 @@
+import json
 import os
+import platform
+import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinterdnd2 import TkinterDnD, DND_FILES
@@ -6,13 +9,33 @@ import threading
 from PIL import Image
 from image_processor import process_image
 
-# HEIC形式のサポートを追加
-try:
-    from pillow_heif import register_heif_opener
-    register_heif_opener()
-except ImportError:
-    # pillow-heifがインストールされていない場合は警告を出すが、処理は続行
-    pass
+DEFAULT_SETTINGS = {
+    "always_on_top": False,
+    "crop_type": "none",
+    "size_type": "mb",
+    "operation": "auto",
+    "output_format": "original",
+    "filename_pattern": "default",
+    "window_width": 900,
+    "window_height": 600,
+    "window_x": 100,
+    "window_y": 100,
+    "preset": "カスタム",
+    "target_size": 2.0,
+    "mb_size": 2,
+    "kb_size": 500,
+    "width_px": 1920,
+    "height_px": 1080,
+    "long_edge_px": 1920,
+    "aspect_width": 16.0,
+    "aspect_height": 9.0,
+    "include_crop_type": False,
+    "include_size_ratio": False,
+    "include_timestamp": False,
+    "include_sequential": False,
+    "include_preset_name": False,
+    "output_destination": "original",
+}
 
 
 class ImageProcessorApp:
@@ -43,90 +66,39 @@ class ImageProcessorApp:
     def load_settings(self):
         """設定をJSONファイルからロード"""
         self.settings_file = os.path.join(os.path.dirname(__file__), "settings.json")
+        settings = dict(DEFAULT_SETTINGS)
         try:
             if os.path.exists(self.settings_file):
                 with open(self.settings_file, "r", encoding="utf-8") as f:
-                    import json
-                    settings = json.load(f)
-                    self.always_on_top = settings.get("always_on_top", False)
-                    self.crop_type = settings.get("crop_type", "none")
-                    self.size_type = settings.get("size_type", "mb")
-                    self.operation = settings.get("operation", "auto")
-                    self.output_format = settings.get("output_format", "original")
-                    self.filename_pattern = settings.get("filename_pattern", "default")
-                    self.window_width = settings.get("window_width", 900)
-                    self.window_height = settings.get("window_height", 600)
-                    self.window_x = settings.get("window_x", 100)
-                    self.window_y = settings.get("window_y", 100)
-                    self.preset = settings.get("preset", "カスタム")
-                    self.target_size = settings.get("target_size", 2.0)
-                    self.mb_size = settings.get("mb_size", 2)
-                    self.kb_size = settings.get("kb_size", 500)
-                    self.width_px = settings.get("width_px", 1920)
-                    self.height_px = settings.get("height_px", 1080)
-                    self.long_edge_px = settings.get("long_edge_px", 1920)
-                    self.aspect_width_value = settings.get("aspect_width", 16.0)
-                    self.aspect_height_value = settings.get("aspect_height", 9.0)
-                    # ファイル名パターンのチェックボックス設定
-                    self.include_crop_type_value = settings.get("include_crop_type", False)
-                    self.include_size_ratio_value = settings.get("include_size_ratio", False)
-                    self.include_timestamp_value = settings.get("include_timestamp", False)
-                    self.include_sequential_value = settings.get("include_sequential", False)
-                    self.include_preset_name_value = settings.get("include_preset_name", False)
-                    self.output_destination = settings.get("output_destination", "original")
-            else:
-                self.always_on_top = False
-                self.crop_type = "none"
-                self.size_type = "mb"
-                self.operation = "auto"
-                self.output_format = "original"
-                self.filename_pattern = "default"
-                self.window_width = 900
-                self.window_height = 600
-                self.window_x = 100
-                self.window_y = 100
-                self.preset = "カスタム"
-                self.target_size = 2.0
-                self.mb_size = 2
-                self.kb_size = 500
-                self.width_px = 1920
-                self.height_px = 1080
-                self.long_edge_px = 1920
-                self.aspect_width_value = 16.0
-                self.aspect_height_value = 9.0
-                self.include_crop_type_value = False
-                self.include_size_ratio_value = False
-                self.include_timestamp_value = False
-                self.include_sequential_value = False
-                self.include_preset_name_value = False
-                self.output_destination = "original"
+                    settings.update(json.load(f))
         except Exception as e:
             print(f"設定ロードエラー: {e}")
-            self.always_on_top = False
-            self.crop_type = "none"
-            self.size_type = "mb"
-            self.operation = "auto"
-            self.output_format = "original"
-            self.filename_pattern = "default"
-            self.window_width = 900
-            self.window_height = 600
-            self.window_x = 100
-            self.window_y = 100
-            self.preset = "カスタム"
-            self.target_size = 2.0
-            self.mb_size = 2
-            self.kb_size = 500
-            self.width_px = 1920
-            self.height_px = 1080
-            self.long_edge_px = 1920
-            self.aspect_width_value = 16.0
-            self.aspect_height_value = 9.0
-            self.include_crop_type_value = False
-            self.include_size_ratio_value = False
-            self.include_timestamp_value = False
-            self.include_sequential_value = False
-            self.include_preset_name_value = False
-            self.output_destination = "original"
+
+        self.always_on_top = settings["always_on_top"]
+        self.crop_type = settings["crop_type"]
+        self.size_type = settings["size_type"]
+        self.operation = settings["operation"]
+        self.output_format = settings["output_format"]
+        self.filename_pattern = settings["filename_pattern"]
+        self.window_width = settings["window_width"]
+        self.window_height = settings["window_height"]
+        self.window_x = settings["window_x"]
+        self.window_y = settings["window_y"]
+        self.preset = settings["preset"]
+        self.target_size = settings["target_size"]
+        self.mb_size = settings["mb_size"]
+        self.kb_size = settings["kb_size"]
+        self.width_px = settings["width_px"]
+        self.height_px = settings["height_px"]
+        self.long_edge_px = settings["long_edge_px"]
+        self.aspect_width_value = settings["aspect_width"]
+        self.aspect_height_value = settings["aspect_height"]
+        self.include_crop_type_value = settings["include_crop_type"]
+        self.include_size_ratio_value = settings["include_size_ratio"]
+        self.include_timestamp_value = settings["include_timestamp"]
+        self.include_sequential_value = settings["include_sequential"]
+        self.include_preset_name_value = settings["include_preset_name"]
+        self.output_destination = settings["output_destination"]
 
     def load_presets(self):
         """プリセットをJSONファイルからロード"""
@@ -137,7 +109,6 @@ class ImageProcessorApp:
         try:
             if os.path.exists(self.presets_file):
                 with open(self.presets_file, "r", encoding="utf-8") as f:
-                    import json
                     data = json.load(f)
                     
                     for category in data.get("categories", []):
@@ -225,7 +196,6 @@ class ImageProcessorApp:
                 "window_y": self.window_y
             }
             with open(self.settings_file, "w", encoding="utf-8") as f:
-                import json
                 json.dump(settings, f, indent=4, ensure_ascii=False)
         except Exception as e:
             print(f"設定保存エラー: {e}")
@@ -581,15 +551,12 @@ class ImageProcessorApp:
 
     def browse_files(self):
         files = filedialog.askopenfilenames(
-            filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff")]
+            filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.heic;*.heif;*.webp")]
         )
         self.add_files(files)
 
     def open_output_folder(self):
         """出力先フォルダをエクスプローラーで開く"""
-        import subprocess
-        import platform
-
         if self.output_dest_var.get() == "output":
             folder_path = os.path.join(os.path.dirname(__file__), "output")
             # フォルダが存在しない場合は作成
@@ -677,20 +644,39 @@ class ImageProcessorApp:
                 return
 
         format_value = self.format_var.get()
-        if format_value == "original":
-            output_format = None
-        elif format_value == "webp":
+        if format_value == "webp":
             output_format = "webp"
         elif format_value == "png":
             output_format = "png"
+        else:
+            output_format = None
 
         self.output_text.delete(1.0, tk.END)
         self.progress["maximum"] = len(files) * 100
         self.progress["value"] = 0
 
+        # スレッドセーフなGUI更新用ヘルパー関数
+        def _add_progress(value):
+            self.progress["value"] += value
+
         def update_progress(file_progress):
-            self.progress["value"] += file_progress
-            self.master.update_idletasks()
+            self.master.after(0, lambda v=file_progress: _add_progress(v))
+
+        def _set_progress(value):
+            self.progress["value"] = value
+
+        def _delete_first_item():
+            if self.file_listbox.size() > 0:
+                self.file_listbox.delete(0)
+
+        def _log_output(text, tag=None):
+            if tag:
+                self.output_text.insert(tk.END, text, tag)
+            else:
+                self.output_text.insert(tk.END, text)
+            self.output_text.see(tk.END)
+
+        max_progress = len(files) * 100
 
         def process_images_thread():
             # 出力先の決定
@@ -728,8 +714,10 @@ class ImageProcessorApp:
                         preset_name=self.preset_var.get() if self.preset_var.get() != "カスタム" else None
                     )
 
+                    # ログメッセージを構築（スレッド内で計算してからGUIに送る）
                     if message:
-                        self.output_text.insert(tk.END, f"{file}: {message}\n", "green")
+                        log_text = f"{file}: {message}\n"
+                        log_tag = "green"
                     elif output_path:
                         final_size = os.path.getsize(output_path) / (1024 * 1024)
                         original_size = os.path.getsize(file) / (1024 * 1024)
@@ -737,30 +725,28 @@ class ImageProcessorApp:
                             original_width, original_height = img.size
                         with Image.open(output_path) as img:
                             final_width, final_height = img.size
-                        self.output_text.insert(tk.END, f"処理完了: {file}\n")
-                        self.output_text.insert(tk.END, f"  出力: {output_path}\n")
-                        self.output_text.insert(
-                            tk.END,
-                            f"  元のサイズ: {original_size:.2f} MB, {original_width}x{original_height}px\n",
+                        log_text = (
+                            f"処理完了: {file}\n"
+                            f"  出力: {output_path}\n"
+                            f"  元のサイズ: {original_size:.2f} MB, {original_width}x{original_height}px\n"
+                            f"  最終サイズ: {final_size:.2f} MB, {final_width}x{final_height}px\n"
+                            f"  サイズ比率: {size_ratio:.2%}\n"
                         )
-                        self.output_text.insert(
-                            tk.END,
-                            f"  最終サイズ: {final_size:.2f} MB, {final_width}x{final_height}px\n",
-                        )
-                        self.output_text.insert(
-                            tk.END, f"  サイズ比率: {size_ratio:.2%}\n"
-                        )
+                        log_tag = None
                     else:
-                        self.output_text.insert(tk.END, f"処理失敗: {file}\n")
-                    self.output_text.see(tk.END)
+                        log_text = f"処理失敗: {file}\n"
+                        log_tag = None
+
+                    self.master.after(0, lambda t=log_text, tag=log_tag: _log_output(t, tag))
                 except Exception as e:
-                    self.output_text.insert(tk.END, f"エラー ({file}): {str(e)}\n")
+                    err_msg = f"エラー ({file}): {str(e)}\n"
+                    self.master.after(0, lambda m=err_msg: _log_output(m))
 
-                self.progress["value"] = (i + 1) * 100
-                self.master.after(0, lambda: self.file_listbox.delete(0))
+                progress_val = (i + 1) * 100
+                self.master.after(0, lambda v=progress_val: _set_progress(v))
+                self.master.after(0, _delete_first_item)
 
-            self.progress["value"] = self.progress["maximum"]
-            self.master.update_idletasks()
+            self.master.after(0, lambda: _set_progress(max_progress))
 
         threading.Thread(target=process_images_thread, daemon=True).start()
     
@@ -819,7 +805,7 @@ class ImageProcessorApp:
         if hasattr(self, 'save_timer'):
             try:
                 self.master.after_cancel(self.save_timer)
-            except:
+            except Exception:
                 pass
         
         # 最終的な設定を保存

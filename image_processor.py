@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from PIL import Image, ImageOps
 import os
 import tempfile
@@ -10,6 +12,14 @@ try:
 except ImportError:
     # pillow-heifがインストールされていない場合は警告を出すが、処理は続行
     pass
+
+
+def _safe_output_path(input_path, output_path):
+    """入力ファイルと同じパスの場合、上書きを防止する"""
+    if os.path.abspath(output_path) == os.path.abspath(input_path):
+        name, ext = os.path.splitext(output_path)
+        output_path = f"{name}_processed{ext}"
+    return output_path
 
 
 def crop_image(img, crop_type, aspect_ratio=None):
@@ -103,8 +113,8 @@ def process_image(
         if output_format:
             ext = f".{output_format.lower()}"
 
-        # RGBAモードの画像をRGBに変換（WebP対応）
-        if img.mode == 'RGBA' and output_format == 'webp':
+        # RGBAモードの画像をJPEG出力する場合はRGBに変換（JPEGはRGBAをサポートしない）
+        if img.mode == 'RGBA' and ext.lower() in ['.jpg', '.jpeg']:
             img = img.convert('RGB')
 
         img = crop_image(img, crop_type, aspect_ratio)
@@ -143,7 +153,6 @@ def process_image(
         
         # タイムスタンプを追加
         if filename_pattern.get("include_timestamp", False):
-            from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_filename += f"_{timestamp}"
 
@@ -156,6 +165,7 @@ def process_image(
 
         if size_type == "none":
             output_path = os.path.join(output_folder, f"{output_filename}{ext}")
+            output_path = _safe_output_path(input_path, output_path)
             if output_format == 'webp':
                 img.save(output_path, 'WEBP', quality=quality)
             elif output_format == 'png':
@@ -228,11 +238,7 @@ def process_image(
                     progress_callback((iteration + 1) / max_iterations)
 
                 condition = False
-                if size_type == "mb":
-                    condition = (
-                        operation == "compress" and new_size <= target_size_mb
-                    ) or (operation == "upscale" and new_size >= target_size_mb)
-                elif size_type == "kb":
+                if size_type in ("mb", "kb"):
                     condition = (
                         operation == "compress" and new_size <= target_size_mb
                     ) or (operation == "upscale" and new_size >= target_size_mb)
@@ -264,6 +270,7 @@ def process_image(
                             output_filename += f"_{current_ratio}%"
 
                     output_path = os.path.join(output_folder, f"{output_filename}{ext}")
+                    output_path = _safe_output_path(input_path, output_path)
                     shutil.copy2(temp_path, output_path)
                     if progress_callback:
                         progress_callback(1.0)
@@ -281,6 +288,7 @@ def process_image(
             # 最後の有効なファイルを使用
             if last_valid_path and os.path.exists(last_valid_path):
                 output_path = os.path.join(output_folder, f"{output_filename}{ext}")
+                output_path = _safe_output_path(input_path, output_path)
                 shutil.copy2(last_valid_path, output_path)
                 if progress_callback:
                     progress_callback(1.0)
