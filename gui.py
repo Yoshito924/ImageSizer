@@ -637,6 +637,7 @@ class ImageProcessorApp:
         self.file_listbox.config(bg=self._listbox_default_bg)
         files = self.master.tk.splitlist(event.data)
         self.add_files(files)
+        self.process_images()
 
     def add_files(self, files):
         for file in files:
