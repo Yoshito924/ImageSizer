@@ -3,7 +3,7 @@ import os
 import platform
 import subprocess
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, ttk, font as tkfont
 from tkinterdnd2 import TkinterDnD, DND_FILES
 import threading
 from PIL import Image
@@ -53,6 +53,11 @@ class ImageProcessorApp:
         self.validate_window_position()
         geometry = f"{self.window_width}x{self.window_height}+{self.window_x}+{self.window_y}"
         master.geometry(geometry)
+        master.minsize(720, 580)
+
+        self.style = ttk.Style()
+        self.configure_styles()
+        self.is_processing = False
 
         # ウィンドウ位置とサイズ変更のイベントをバインド
         master.bind("<Configure>", self.on_window_configure)
@@ -65,18 +70,377 @@ class ImageProcessorApp:
 
     def _get_theme_colors(self):
         """sv_ttkテーマに合わせた非ttkウィジェット用カラーを返す"""
-        style = ttk.Style()
+        style = getattr(self, "style", ttk.Style())
         try:
-            bg = style.lookup("TFrame", "background") or "#fafafa"
+            bg = style.lookup("TFrame", "background") or "#eef3f9"
         except tk.TclError:
-            bg = "#fafafa"
+            bg = "#eef3f9"
         return {
-            "bg": bg,
-            "fg": "#1c1c1c",
-            "select_bg": "#0078d4",
+            "app_bg": bg,
+            "bg": "#ffffff",
+            "fg": "#0f172a",
+            "surface": "#ffffff",
+            "surface_alt": "#f6f8fc",
+            "text": "#0f172a",
+            "muted": "#5b6473",
+            "accent": "#2563eb",
+            "accent_soft": "#dbeafe",
+            "accent_strong": "#1d4ed8",
+            "select_bg": "#2563eb",
             "select_fg": "#ffffff",
-            "border": "#e0e0e0",
+            "border": "#d7deea",
+            "drop_bg": "#eef6ff",
+            "drop_border": "#93c5fd",
+            "success": "#15803d",
         }
+
+    def _detect_font_family(self):
+        try:
+            families = set(tkfont.families(self.master))
+        except tk.TclError:
+            return tkfont.nametofont("TkDefaultFont").cget("family")
+
+        for family in ("Yu Gothic UI", "Segoe UI", "Hiragino Sans", "Meiryo"):
+            if family in families:
+                return family
+        return tkfont.nametofont("TkDefaultFont").cget("family")
+
+    def _detect_mono_family(self):
+        try:
+            families = set(tkfont.families(self.master))
+        except tk.TclError:
+            return tkfont.nametofont("TkFixedFont").cget("family")
+
+        for family in ("Cascadia Mono", "Consolas", "SF Mono", "Menlo", "Courier New"):
+            if family in families:
+                return family
+        return tkfont.nametofont("TkFixedFont").cget("family")
+
+    def configure_styles(self):
+        self.colors = self._get_theme_colors()
+        self.font_family = self._detect_font_family()
+        self.mono_family = self._detect_mono_family()
+
+        self.master.configure(bg=self.colors["app_bg"])
+
+        self.style.configure("App.TFrame", background=self.colors["app_bg"])
+        self.style.configure("Surface.TFrame", background=self.colors["surface"])
+        self.style.configure("Hero.TFrame", background=self.colors["surface"])
+        self.style.configure(
+            "Card.TLabelframe",
+            background=self.colors["surface"],
+            borderwidth=1,
+            relief="solid",
+        )
+        self.style.configure(
+            "Card.TLabelframe.Label",
+            background=self.colors["surface"],
+            foreground=self.colors["text"],
+            font=(self.font_family, 9, "bold"),
+        )
+        self.style.configure(
+            "HeroTitle.TLabel",
+            background=self.colors["surface"],
+            foreground=self.colors["text"],
+            font=(self.font_family, 15, "bold"),
+        )
+        self.style.configure(
+            "HeroSubtitle.TLabel",
+            background=self.colors["surface"],
+            foreground=self.colors["muted"],
+            font=(self.font_family, 8),
+        )
+        self.style.configure(
+            "HeroHint.TLabel",
+            background=self.colors["surface"],
+            foreground=self.colors["muted"],
+            font=(self.font_family, 8),
+        )
+        self.style.configure(
+            "Badge.TLabel",
+            background=self.colors["accent_soft"],
+            foreground=self.colors["accent_strong"],
+            font=(self.font_family, 8, "bold"),
+            padding=(7, 2),
+        )
+        self.style.configure(
+            "Hint.TLabel",
+            background=self.colors["surface"],
+            foreground=self.colors["muted"],
+            font=(self.font_family, 8),
+        )
+        self.style.configure(
+            "SectionTitle.TLabel",
+            background=self.colors["surface"],
+            foreground=self.colors["text"],
+            font=(self.font_family, 9, "bold"),
+        )
+        self.style.configure("Action.TButton", padding=(9, 4))
+        self.style.configure("Ghost.TButton", padding=(8, 4))
+        self.style.configure(
+            "Tall.Accent.TButton",
+            padding=(10, 7),
+            font=(self.font_family, 9, "bold"),
+        )
+        self.style.configure(
+            "App.Horizontal.TProgressbar",
+            thickness=8,
+            troughcolor=self.colors["surface_alt"],
+            background=self.colors["accent"],
+            borderwidth=0,
+        )
+
+    def _set_dropzone_active(self, active):
+        border = self.colors["drop_border"] if active else self.colors["border"]
+        bg = self.colors["drop_bg"] if active else self.colors["surface_alt"]
+
+        if hasattr(self, "file_listbox_shell") and self.file_listbox_shell.winfo_exists():
+            self.file_listbox_shell.config(bg=border)
+        if hasattr(self, "file_listbox_inner") and self.file_listbox_inner.winfo_exists():
+            self.file_listbox_inner.config(bg=bg)
+        if hasattr(self, "file_list_container") and self.file_list_container.winfo_exists():
+            self.file_list_container.config(bg=bg)
+        if hasattr(self, "file_listbox") and self.file_listbox.winfo_exists():
+            self.file_listbox.config(bg=bg)
+        if hasattr(self, "file_empty_state") and self.file_empty_state.winfo_exists():
+            self.file_empty_state.config(bg=bg)
+
+    def _refresh_ui_state(self):
+        self._update_file_summary()
+        self._update_output_status()
+        self._update_preset_status()
+
+    def _update_file_summary(self):
+        count = 0
+        if hasattr(self, "file_listbox") and self.file_listbox.winfo_exists():
+            count = self.file_listbox.size()
+
+        if hasattr(self, "file_summary_var"):
+            self.file_summary_var.set(f"選択中 {count} 枚")
+
+        if hasattr(self, "file_empty_state") and self.file_empty_state.winfo_exists():
+            if count == 0:
+                self.file_empty_state.place(relx=0.5, rely=0.5, anchor="center")
+            else:
+                self.file_empty_state.place_forget()
+
+    def _update_output_status(self):
+        if not hasattr(self, "output_status_var"):
+            return
+
+        destination = (
+            self.output_dest_var.get()
+            if hasattr(self, "output_dest_var")
+            else getattr(self, "output_destination", "original")
+        )
+        if destination == "output":
+            self.output_status_var.set("出力先 output フォルダ")
+        else:
+            self.output_status_var.set("出力先 元のフォルダ")
+
+    def _update_preset_status(self):
+        if not hasattr(self, "preset_status_var"):
+            return
+
+        preset = (
+            self.preset_var.get()
+            if hasattr(self, "preset_var")
+            else getattr(self, "preset", "カスタム")
+        )
+        if preset.startswith("---"):
+            preset = "カスタム"
+        self.preset_status_var.set(f"プリセット {preset}")
+
+    def _show_log_placeholder(self):
+        if not hasattr(self, "output_text") or not self.output_text.winfo_exists():
+            return
+        self.output_text.delete(1.0, tk.END)
+        self.output_text.insert(tk.END, "処理ログがここに表示されます。", "muted")
+
+    def _create_scroll_container(self):
+        self.scroll_container = ttk.Frame(self.master, style="App.TFrame")
+        self.scroll_container.pack(fill=tk.BOTH, expand=True)
+
+        self.content_canvas = tk.Canvas(
+            self.scroll_container,
+            bg=self.colors["app_bg"],
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        self.content_scrollbar = ttk.Scrollbar(
+            self.scroll_container,
+            orient=tk.VERTICAL,
+            command=self.content_canvas.yview,
+        )
+        self.content_canvas.configure(yscrollcommand=self.content_scrollbar.set)
+
+        self.content_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.content_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.content_frame = ttk.Frame(self.content_canvas, style="App.TFrame")
+        self.content_window = self.content_canvas.create_window(
+            (0, 0),
+            window=self.content_frame,
+            anchor="nw",
+        )
+
+        self.content_frame.bind("<Configure>", self._on_content_frame_configure)
+        self.content_canvas.bind("<Configure>", self._on_content_canvas_configure)
+        self.content_canvas.bind("<MouseWheel>", self._on_mousewheel, add="+")
+        self.content_canvas.bind("<Button-4>", self._on_mousewheel_linux, add="+")
+        self.content_canvas.bind("<Button-5>", self._on_mousewheel_linux, add="+")
+
+    def _on_content_frame_configure(self, _event=None):
+        if hasattr(self, "content_canvas"):
+            self.content_canvas.configure(scrollregion=self.content_canvas.bbox("all"))
+
+    def _on_content_canvas_configure(self, event):
+        if hasattr(self, "content_canvas") and hasattr(self, "content_window"):
+            self.content_canvas.itemconfigure(self.content_window, width=event.width)
+
+    def _scroll_content(self, direction):
+        if not hasattr(self, "content_canvas"):
+            return None
+        first, last = self.content_canvas.yview()
+        if direction < 0 and first <= 0.0:
+            return "break"
+        if direction > 0 and last >= 1.0:
+            return "break"
+        self.content_canvas.yview_scroll(direction, "units")
+        return "break"
+
+    def _on_mousewheel(self, event):
+        if getattr(event, "delta", 0) == 0:
+            return None
+        direction = -1 if event.delta > 0 else 1
+        return self._scroll_content(direction)
+
+    def _on_mousewheel_linux(self, event):
+        if getattr(event, "num", None) == 4:
+            return self._scroll_content(-1)
+        if getattr(event, "num", None) == 5:
+            return self._scroll_content(1)
+        return None
+
+    def _bind_scroll_support(self, widget):
+        scroll_excluded = {"Text", "Listbox", "Scrollbar", "TScrollbar", "Canvas"}
+        if widget.winfo_class() not in scroll_excluded:
+            widget.bind("<MouseWheel>", self._on_mousewheel, add="+")
+            widget.bind("<Button-4>", self._on_mousewheel_linux, add="+")
+            widget.bind("<Button-5>", self._on_mousewheel_linux, add="+")
+
+        for child in widget.winfo_children():
+            self._bind_scroll_support(child)
+
+    def _set_wraplength(self, widget, wraplength):
+        if widget and widget.winfo_exists():
+            widget.configure(wraplength=max(180, int(wraplength)))
+
+    def _apply_responsive_layout(self, width=None):
+        required_widgets = (
+            "left_frame",
+            "right_frame",
+            "title_frame",
+            "toggle_frame",
+            "header_badges_frame",
+            "header_hint_label",
+            "file_buttons_frame",
+            "preset_row",
+            "output_text",
+        )
+        if not all(hasattr(self, name) for name in required_widgets):
+            return
+
+        if width is None:
+            width = (
+                self.content_canvas.winfo_width()
+                if hasattr(self, "content_canvas")
+                else self.master.winfo_width()
+            )
+        if width <= 1:
+            width = getattr(self, "window_width", 1180)
+
+        stacked = width < 940
+        tight = width < 760
+        ultra_tight = width < 730
+        header_stacked = width < 820
+
+        if getattr(self, "_settings_layout_mode", None) != stacked:
+            self.left_frame.pack_forget()
+            self.right_frame.pack_forget()
+            if stacked:
+                self.left_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+                self.right_frame.pack(fill=tk.BOTH, expand=True)
+            else:
+                self.left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 3))
+                self.right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(3, 0))
+            self._settings_layout_mode = stacked
+
+        if getattr(self, "_header_layout_mode", None) != header_stacked:
+            self.title_frame.pack_forget()
+            self.toggle_frame.pack_forget()
+            self.title_frame.pack(side=tk.TOP if header_stacked else tk.LEFT, fill=tk.X, expand=True, anchor=tk.W)
+            self.toggle_frame.pack(
+                side=tk.TOP if header_stacked else tk.RIGHT,
+                anchor=tk.W if header_stacked else tk.NE,
+                pady=(4, 0) if header_stacked else (0, 0),
+            )
+            self._header_layout_mode = header_stacked
+
+        if getattr(self, "_meta_layout_mode", None) != tight:
+            self.header_badges_frame.pack_forget()
+            self.header_hint_label.pack_forget()
+            if tight:
+                self.header_badges_frame.pack(fill=tk.X, anchor=tk.W)
+                self.header_hint_label.pack(anchor=tk.W, pady=(4, 0))
+            else:
+                self.header_badges_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+                self.header_hint_label.pack(side=tk.RIGHT)
+            self._meta_layout_mode = tight
+
+        if getattr(self, "_file_actions_layout_mode", None) != tight:
+            for button in self.file_action_buttons:
+                button.pack_forget()
+            self.file_buttons_hint_label.pack_forget()
+            if tight:
+                for button in self.file_action_buttons:
+                    button.pack(fill=tk.X, pady=(0, 3))
+                self.file_buttons_hint_label.pack(anchor=tk.W, pady=(1, 0))
+            else:
+                self.file_select_button.pack(side=tk.LEFT, padx=(0, 6))
+                self.file_remove_button.pack(side=tk.LEFT, padx=(0, 6))
+                self.file_clear_button.pack(side=tk.LEFT)
+                self.file_buttons_hint_label.pack(side=tk.RIGHT)
+            self._file_actions_layout_mode = tight
+
+        if getattr(self, "_preset_layout_mode", None) != tight:
+            self.preset_row_label.pack_forget()
+            self.preset_combo.pack_forget()
+            if tight:
+                self.preset_row_label.pack(anchor=tk.W, pady=(0, 3))
+                self.preset_combo.pack(fill=tk.X)
+            else:
+                self.preset_row_label.pack(side=tk.LEFT, padx=(0, 8))
+                self.preset_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            self._preset_layout_mode = tight
+
+        body_wrap = width - 80
+        header_wrap = width - (90 if header_stacked else 250)
+        column_wrap = width - 80 if stacked else (width - 120) / 2
+        self._set_wraplength(self.header_subtitle_label, header_wrap)
+        self._set_wraplength(self.file_intro_label, body_wrap)
+        self._set_wraplength(self.file_buttons_hint_label, body_wrap if tight else 260)
+        self._set_wraplength(self.preset_intro_label, body_wrap)
+        self._set_wraplength(self.crop_intro_label, column_wrap)
+        self._set_wraplength(self.size_intro_label, column_wrap)
+        self._set_wraplength(self.format_intro_label, column_wrap)
+        self._set_wraplength(self.output_dest_intro_label, column_wrap)
+        self._set_wraplength(self.filename_intro_label, column_wrap)
+        self._set_wraplength(self.log_intro_label, body_wrap)
+        self.file_empty_state.configure(wraplength=max(200, width - 120))
+        self.file_listbox.configure(height=3 if ultra_tight else 4)
+        self.output_text.configure(height=4 if ultra_tight else (5 if tight else 6))
+        self.content_frame.after_idle(self._on_content_frame_configure)
 
     def load_settings(self):
         """設定をJSONファイルからロード"""
@@ -222,13 +586,35 @@ class ImageProcessorApp:
         self.save_settings()
 
     def create_widgets(self):
-        colors = self._get_theme_colors()
+        colors = self.colors
+        self._create_scroll_container()
 
-        # 最前面表示トグルボタン
-        toggle_frame = ttk.Frame(self.master)
-        toggle_frame.pack(fill=tk.X, padx=10, pady=(8, 2))
+        self.header_frame = ttk.Frame(
+            self.content_frame, style="Hero.TFrame", padding=(10, 8, 10, 7)
+        )
+        self.header_frame.pack(fill=tk.X, padx=8, pady=(8, 4))
+
+        self.header_top = ttk.Frame(self.header_frame, style="Hero.TFrame")
+        self.header_top.pack(fill=tk.X)
+
+        self.title_frame = ttk.Frame(self.header_top, style="Hero.TFrame")
+        self.title_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(self.title_frame, text="ImageSizer", style="HeroTitle.TLabel").pack(
+            anchor=tk.W
+        )
+        self.header_subtitle_label = ttk.Label(
+            self.title_frame,
+            text="複数画像をまとめて整形できます。",
+            style="HeroSubtitle.TLabel",
+            wraplength=700,
+            justify=tk.LEFT,
+        )
+        self.header_subtitle_label.pack(anchor=tk.W, pady=(1, 0))
+
+        self.toggle_frame = ttk.Frame(self.header_top, style="Hero.TFrame")
+        self.toggle_frame.pack(side=tk.RIGHT, anchor=tk.NE)
         self.toggle_button = ttk.Checkbutton(
-            toggle_frame,
+            self.toggle_frame,
             text="常に最前面に表示",
             command=self.toggle_always_on_top
         )
@@ -237,83 +623,176 @@ class ImageProcessorApp:
             self.toggle_button.state(['selected'])
             self.master.attributes("-topmost", True)
 
-        # ファイル選択部分
-        file_frame = ttk.LabelFrame(self.master, text="ファイル選択", padding=(10, 5))
-        file_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.header_meta = ttk.Frame(self.header_frame, style="Hero.TFrame")
+        self.header_meta.pack(fill=tk.X, pady=(6, 0))
+        self.file_summary_var = tk.StringVar()
+        self.output_status_var = tk.StringVar()
+        self.preset_status_var = tk.StringVar()
+        self.header_badges_frame = ttk.Frame(self.header_meta, style="Hero.TFrame")
+        self.header_badges_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Label(
-            file_frame, text="画像をドラッグ&ドロップ、またはファイルを選択してください："
-        ).pack(anchor=tk.W, pady=(0, 5))
+            self.header_badges_frame, textvariable=self.file_summary_var, style="Badge.TLabel"
+        ).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(
+            self.header_badges_frame, textvariable=self.output_status_var, style="Badge.TLabel"
+        ).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(
+            self.header_badges_frame, textvariable=self.preset_status_var, style="Badge.TLabel"
+        ).pack(side=tk.LEFT)
+        self.header_hint_label = ttk.Label(
+            self.header_meta,
+            text="ヒント: 追加した画像はすぐ処理されます",
+            style="HeroHint.TLabel",
+        )
+        self.header_hint_label.pack(side=tk.RIGHT)
+
+        # ファイル選択部分
+        self.file_frame = ttk.LabelFrame(
+            self.content_frame, text="ファイル選択", style="Card.TLabelframe", padding=(8, 7)
+        )
+        self.file_frame.pack(fill=tk.X, padx=8, pady=4)
+        self.file_intro_label = ttk.Label(
+            self.file_frame,
+            text="画像をドロップまたは選択すると自動で処理します。",
+            style="Hint.TLabel",
+        )
+        self.file_intro_label.pack(anchor=tk.W, pady=(0, 4))
 
         # Listbox + Scrollbar
-        listbox_frame = ttk.Frame(file_frame)
-        listbox_frame.pack(fill=tk.X, pady=(0, 5))
-        listbox_scrollbar = ttk.Scrollbar(listbox_frame, orient=tk.VERTICAL)
+        self.file_listbox_shell = tk.Frame(self.file_frame, bg=colors["border"], bd=0)
+        self.file_listbox_shell.pack(fill=tk.X, pady=(0, 3))
+        self.file_listbox_inner = tk.Frame(
+            self.file_listbox_shell, bg=colors["surface_alt"], padx=1, pady=1
+        )
+        self.file_listbox_inner.pack(fill=tk.BOTH, expand=True)
+        self.file_list_container = tk.Frame(
+            self.file_listbox_inner, bg=colors["surface_alt"]
+        )
+        self.file_list_container.pack(fill=tk.BOTH, expand=True)
+        listbox_scrollbar = ttk.Scrollbar(self.file_list_container, orient=tk.VERTICAL)
         self.file_listbox = tk.Listbox(
-            listbox_frame,
+            self.file_list_container,
             width=70,
-            height=5,
+            height=4,
             selectmode=tk.EXTENDED,
             yscrollcommand=listbox_scrollbar.set,
-            bg=colors["bg"],
-            fg=colors["fg"],
+            bg=colors["surface_alt"],
+            fg=colors["text"],
             selectbackground=colors["select_bg"],
             selectforeground=colors["select_fg"],
-            highlightthickness=1,
-            highlightcolor=colors["border"],
-            highlightbackground=colors["border"],
+            highlightthickness=0,
+            borderwidth=0,
             relief=tk.FLAT,
-            font=("Consolas", 9),
+            exportselection=False,
+            activestyle="none",
+            font=(self.mono_family, 9),
         )
         listbox_scrollbar.config(command=self.file_listbox.yview)
         self.file_listbox.pack(side=tk.LEFT, fill=tk.X, expand=True)
         listbox_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        # ドラッグ&ドロップ時の背景色を保持
-        self._listbox_default_bg = colors["bg"]
+        self.file_empty_state = tk.Label(
+            self.file_listbox_inner,
+            text="ここに画像をドロップ\nまたはファイルを選択して自動処理",
+            bg=colors["surface_alt"],
+            fg=colors["muted"],
+            font=(self.font_family, 9),
+            justify=tk.CENTER,
+            cursor="hand2",
+        )
+        self.file_empty_state.bind("<Button-1>", lambda _event: self.browse_files())
+        self._set_dropzone_active(False)
 
         # ボタン行: [ファイルを選択] [選択を削除] [すべてクリア]
-        btn_frame = ttk.Frame(file_frame)
-        btn_frame.pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(btn_frame, text="ファイルを選択", command=self.browse_files).pack(
-            side=tk.LEFT, padx=(0, 5)
+        self.file_buttons_frame = ttk.Frame(self.file_frame, style="Surface.TFrame")
+        self.file_buttons_frame.pack(fill=tk.X, pady=(1, 0))
+        self.file_select_button = ttk.Button(
+            self.file_buttons_frame,
+            text="ファイルを選択",
+            style="Action.TButton",
+            command=self.browse_files,
         )
-        ttk.Button(btn_frame, text="選択を削除", command=self.remove_selected_files).pack(
-            side=tk.LEFT, padx=(0, 5)
+        self.file_select_button.pack(side=tk.LEFT, padx=(0, 6))
+        self.file_remove_button = ttk.Button(
+            self.file_buttons_frame,
+            text="選択を削除",
+            style="Ghost.TButton",
+            command=self.remove_selected_files,
         )
-        ttk.Button(btn_frame, text="すべてクリア", command=self.clear_all_files).pack(
-            side=tk.LEFT
+        self.file_remove_button.pack(side=tk.LEFT, padx=(0, 6))
+        self.file_clear_button = ttk.Button(
+            self.file_buttons_frame,
+            text="すべてクリア",
+            style="Ghost.TButton",
+            command=self.clear_all_files,
         )
+        self.file_clear_button.pack(side=tk.LEFT)
+        self.file_action_buttons = [
+            self.file_select_button,
+            self.file_remove_button,
+            self.file_clear_button,
+        ]
+        self.file_buttons_hint_label = ttk.Label(
+            self.file_buttons_frame,
+            text="複数選択のみ削除できます。",
+            style="Hint.TLabel",
+        )
+        self.file_buttons_hint_label.pack(side=tk.RIGHT)
 
         # プリセット選択部分
-        preset_frame = ttk.LabelFrame(self.master, text="プリセット設定", padding=(10, 5))
-        preset_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.preset_frame = ttk.LabelFrame(
+            self.content_frame, text="プリセット設定", style="Card.TLabelframe", padding=(8, 7)
+        )
+        self.preset_frame.pack(fill=tk.X, padx=8, pady=4)
 
-        ttk.Label(preset_frame, text="プリセット:").pack(side=tk.LEFT, padx=(0, 5))
+        self.preset_intro_label = ttk.Label(
+            self.preset_frame,
+            text="よく使う設定を呼び出せます。",
+            style="Hint.TLabel",
+        )
+        self.preset_intro_label.pack(anchor=tk.W, pady=(0, 4))
+
+        self.preset_row = ttk.Frame(self.preset_frame, style="Surface.TFrame")
+        self.preset_row.pack(fill=tk.X)
+        self.preset_row_label = ttk.Label(
+            self.preset_row, text="プリセット", style="SectionTitle.TLabel"
+        )
+        self.preset_row_label.pack(
+            side=tk.LEFT, padx=(0, 10)
+        )
         self.preset_var = tk.StringVar(value=getattr(self, 'preset', "カスタム"))
         self.preset_combo = ttk.Combobox(
-            preset_frame,
+            self.preset_row,
             textvariable=self.preset_var,
             values=self.preset_values,
             state="readonly",
-            width=40
+            width=44
         )
-        self.preset_combo.pack(side=tk.LEFT)
+        self.preset_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.preset_combo.bind("<<ComboboxSelected>>", self.on_preset_change)
 
         # 左右のフレームを作成
-        settings_frame = ttk.Frame(self.master)
-        settings_frame.pack(fill=tk.BOTH, expand=True, padx=10)
+        self.settings_frame = ttk.Frame(self.content_frame, style="App.TFrame")
+        self.settings_frame.pack(fill=tk.BOTH, expand=True, padx=8)
 
         # 左側のフレーム
-        left_frame = ttk.Frame(settings_frame)
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        self.left_frame = ttk.Frame(self.settings_frame, style="App.TFrame")
+        self.left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 3))
 
         # 右側のフレーム
-        right_frame = ttk.Frame(settings_frame)
-        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        self.right_frame = ttk.Frame(self.settings_frame, style="App.TFrame")
+        self.right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(3, 0))
 
         # クロップ設定部分（左側）
-        crop_frame = ttk.LabelFrame(left_frame, text="クロップ設定", padding=(10, 5))
-        crop_frame.pack(fill=tk.X, pady=5)
+        crop_frame = ttk.LabelFrame(
+            self.left_frame, text="クロップ設定", style="Card.TLabelframe", padding=(8, 7)
+        )
+        crop_frame.pack(fill=tk.X, pady=(0, 6))
+        self.crop_intro_label = ttk.Label(
+            crop_frame,
+            text="仕上がり比率を決めます。",
+            style="Hint.TLabel",
+        )
+        self.crop_intro_label.pack(anchor=tk.W, pady=(0, 4))
         self.crop_var = tk.StringVar(value=self.crop_type)
         ttk.Radiobutton(
             crop_frame,
@@ -321,68 +800,68 @@ class ImageProcessorApp:
             variable=self.crop_var,
             value="none",
             command=self.on_crop_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             crop_frame,
             text="正方形（1:1）",
             variable=self.crop_var,
             value="square",
             command=self.on_crop_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             crop_frame,
             text="16:9",
             variable=self.crop_var,
             value="16:9",
             command=self.on_crop_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             crop_frame,
             text="4:3",
             variable=self.crop_var,
             value="4:3",
             command=self.on_crop_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             crop_frame,
             text="9:16",
             variable=self.crop_var,
             value="9:16",
             command=self.on_crop_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             crop_frame,
             text="1:√2（縦長・A4等）",
             variable=self.crop_var,
             value="1:√2",
             command=self.on_crop_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             crop_frame,
             text="√2:1（横長・A4等）",
             variable=self.crop_var,
             value="√2:1",
             command=self.on_crop_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             crop_frame,
             text="カスタム比率",
             variable=self.crop_var,
             value="custom",
             command=self.on_crop_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
 
         # カスタム比率入力用のフレーム
-        self.aspect_ratio_frame = ttk.Frame(crop_frame)
-        self.aspect_ratio_frame.pack(pady=5)
-        ttk.Label(self.aspect_ratio_frame, text="縦横比:").pack(side=tk.LEFT)
-        self.aspect_width = ttk.Entry(self.aspect_ratio_frame, width=5)
+        self.aspect_ratio_frame = ttk.Frame(crop_frame, style="Surface.TFrame")
+        self.aspect_ratio_frame.pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(self.aspect_ratio_frame, text="縦横比", style="SectionTitle.TLabel").pack(side=tk.LEFT)
+        self.aspect_width = ttk.Entry(self.aspect_ratio_frame, width=6)
         self.aspect_width.insert(0, str(getattr(self, 'aspect_width_value', 16.0)))
-        self.aspect_width.pack(side=tk.LEFT)
-        ttk.Label(self.aspect_ratio_frame, text=":").pack(side=tk.LEFT)
-        self.aspect_height = ttk.Entry(self.aspect_ratio_frame, width=5)
+        self.aspect_width.pack(side=tk.LEFT, padx=(10, 4))
+        ttk.Label(self.aspect_ratio_frame, text=":", style="SectionTitle.TLabel").pack(side=tk.LEFT)
+        self.aspect_height = ttk.Entry(self.aspect_ratio_frame, width=6)
         self.aspect_height.insert(0, str(getattr(self, 'aspect_height_value', 9.0)))
-        self.aspect_height.pack(side=tk.LEFT)
+        self.aspect_height.pack(side=tk.LEFT, padx=(4, 0))
         # アスペクト比入力値が変更されたときに保存
         self.aspect_width.bind("<KeyRelease>", lambda e: self.master.after(1000, self.save_settings))
         self.aspect_height.bind("<KeyRelease>", lambda e: self.master.after(1000, self.save_settings))
@@ -391,8 +870,16 @@ class ImageProcessorApp:
             self.aspect_ratio_frame.pack_forget()
 
         # サイズ変更設定部分（右側）
-        size_frame = ttk.LabelFrame(right_frame, text="目標サイズ設定", padding=(10, 5))
-        size_frame.pack(fill=tk.X, pady=5)
+        size_frame = ttk.LabelFrame(
+            self.right_frame, text="目標サイズ設定", style="Card.TLabelframe", padding=(8, 7)
+        )
+        size_frame.pack(fill=tk.X, pady=(0, 6))
+        self.size_intro_label = ttk.Label(
+            size_frame,
+            text="容量かピクセル基準を選びます。",
+            style="Hint.TLabel",
+        )
+        self.size_intro_label.pack(anchor=tk.W, pady=(0, 4))
         self.size_type_var = tk.StringVar(value=self.size_type)
         ttk.Radiobutton(
             size_frame,
@@ -400,71 +887,73 @@ class ImageProcessorApp:
             variable=self.size_type_var,
             value="none",
             command=self.on_size_type_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             size_frame,
             text="MBで指定",
             variable=self.size_type_var,
             value="mb",
             command=self.on_size_type_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             size_frame,
             text="KBで指定",
             variable=self.size_type_var,
             value="kb",
             command=self.on_size_type_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             size_frame,
             text="横ピクセルで指定",
             variable=self.size_type_var,
             value="width",
             command=self.on_size_type_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             size_frame,
             text="縦ピクセルで指定",
             variable=self.size_type_var,
             value="height",
             command=self.on_size_type_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             size_frame,
             text="長辺で指定",
             variable=self.size_type_var,
             value="long_edge",
             command=self.on_size_type_change,
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
 
         # サイズ入力用のフレーム
-        self.size_input_frame = ttk.Frame(size_frame)
-        self.size_input_frame.pack(pady=5)
+        self.size_input_frame = ttk.Frame(size_frame, style="Surface.TFrame")
+        self.size_input_frame.pack(fill=tk.X, pady=(4, 0))
         # 設定から初期値とラベルを取得
         if hasattr(self, 'size_type') and self.size_type == "mb":
             initial_value = str(getattr(self, 'mb_size', 2))
-            label_text = "目標サイズ (MB):"
+            label_text = "目標サイズ (MB)"
         elif hasattr(self, 'size_type') and self.size_type == "kb":
             initial_value = str(getattr(self, 'kb_size', 500))
-            label_text = "目標サイズ (KB):"
+            label_text = "目標サイズ (KB)"
         elif hasattr(self, 'size_type') and self.size_type == "width":
             initial_value = str(getattr(self, 'width_px', 1920))
-            label_text = "目標サイズ (横px):"
+            label_text = "目標サイズ (横px)"
         elif hasattr(self, 'size_type') and self.size_type == "height":
             initial_value = str(getattr(self, 'height_px', 1080))
-            label_text = "目標サイズ (縦px):"
+            label_text = "目標サイズ (縦px)"
         elif hasattr(self, 'size_type') and self.size_type == "long_edge":
             initial_value = str(getattr(self, 'long_edge_px', 1920))
-            label_text = "目標サイズ (長辺px):"
+            label_text = "目標サイズ (長辺px)"
         else:
             initial_value = "2"
-            label_text = "目標サイズ (MB):"
+            label_text = "目標サイズ (MB)"
 
-        self.size_label = ttk.Label(self.size_input_frame, text=label_text)
+        self.size_label = ttk.Label(
+            self.size_input_frame, text=label_text, style="SectionTitle.TLabel"
+        )
         self.size_label.pack(side=tk.LEFT)
         self.size_entry = ttk.Entry(self.size_input_frame, width=10)
         self.size_entry.insert(0, initial_value)
-        self.size_entry.pack(side=tk.LEFT, padx=5)
+        self.size_entry.pack(side=tk.LEFT, padx=(8, 0))
         # サイズ入力値が変更されたときに保存
         self.size_entry.bind("<KeyRelease>", lambda e: self.master.after(1000, self.save_settings))
 
@@ -477,9 +966,15 @@ class ImageProcessorApp:
 
         # 出力フォーマット選択部分（右側）
         format_frame = ttk.LabelFrame(
-            right_frame, text="出力フォーマット", padding=(10, 5)
+            self.right_frame, text="出力フォーマット", style="Card.TLabelframe", padding=(8, 7)
         )
-        format_frame.pack(fill=tk.X, pady=5)
+        format_frame.pack(fill=tk.X, pady=(0, 6))
+        self.format_intro_label = ttk.Label(
+            format_frame,
+            text="元形式か WebP / PNG を選びます。",
+            style="Hint.TLabel",
+        )
+        self.format_intro_label.pack(anchor=tk.W, pady=(0, 4))
         self.format_var = tk.StringVar(value=self.output_format)
         ttk.Radiobutton(
             format_frame,
@@ -487,53 +982,60 @@ class ImageProcessorApp:
             variable=self.format_var,
             value="original",
             command=self.save_settings
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             format_frame,
             text="WebP形式に変換",
             variable=self.format_var,
             value="webp",
             command=self.save_settings
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             format_frame,
             text="PNG形式に変換",
             variable=self.format_var,
             value="png",
             command=self.save_settings
-        ).pack(anchor=tk.W)
+        ).pack(anchor=tk.W, pady=(0, 1))
 
         # 出力先選択部分（右側）
         output_dest_frame = ttk.LabelFrame(
-            right_frame, text="出力先", padding=(10, 5)
+            self.right_frame, text="出力先", style="Card.TLabelframe", padding=(8, 7)
         )
-        output_dest_frame.pack(fill=tk.X, pady=5)
+        output_dest_frame.pack(fill=tk.X, pady=(0, 6))
+        self.output_dest_intro_label = ttk.Label(
+            output_dest_frame,
+            text="元フォルダか output を選びます。",
+            style="Hint.TLabel",
+        )
+        self.output_dest_intro_label.pack(anchor=tk.W, pady=(0, 4))
         self.output_dest_var = tk.StringVar(value=getattr(self, 'output_destination', 'original'))
         ttk.Radiobutton(
             output_dest_frame,
             text="元のフォルダ",
             variable=self.output_dest_var,
             value="original",
-            command=self.save_settings
-        ).pack(anchor=tk.W)
+            command=self.on_output_destination_change
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Radiobutton(
             output_dest_frame,
             text="outputフォルダ",
             variable=self.output_dest_var,
             value="output",
-            command=self.save_settings
-        ).pack(anchor=tk.W)
+            command=self.on_output_destination_change
+        ).pack(anchor=tk.W, pady=(0, 1))
         ttk.Button(
             output_dest_frame,
             text="出力先フォルダを開く",
+            style="Action.TButton",
             command=self.open_output_folder
-        ).pack(anchor=tk.W, pady=(5, 0))
+        ).pack(anchor=tk.W, pady=(4, 0))
 
         # 出力ファイル名パターン選択部分（左側）
         filename_frame = ttk.LabelFrame(
-            left_frame, text="出力ファイル名パターン", padding=(10, 5)
+            self.left_frame, text="出力ファイル名パターン", style="Card.TLabelframe", padding=(8, 7)
         )
-        filename_frame.pack(fill=tk.X, pady=5)
+        filename_frame.pack(fill=tk.X, pady=(0, 6))
 
         # チェックボックス用の変数（設定から復元）
         self.include_crop_type = tk.BooleanVar(value=getattr(self, 'include_crop_type_value', False))
@@ -542,82 +1044,99 @@ class ImageProcessorApp:
         self.include_sequential = tk.BooleanVar(value=getattr(self, 'include_sequential_value', False))
         self.include_preset_name = tk.BooleanVar(value=getattr(self, 'include_preset_name_value', False))
 
-        ttk.Label(
+        self.filename_intro_label = ttk.Label(
             filename_frame,
-            text="ファイル名に含める情報を選択してください："
-        ).pack(anchor=tk.W, pady=(0, 5))
+            text="必要な情報だけ追加します。",
+            style="Hint.TLabel",
+        )
+        self.filename_intro_label.pack(anchor=tk.W, pady=(0, 4))
 
         ttk.Checkbutton(
             filename_frame,
             text="クロップタイプ（クロップ時のみ）",
-            variable=self.include_crop_type
-        ).pack(anchor=tk.W)
+            variable=self.include_crop_type,
+            command=self.save_settings
+        ).pack(anchor=tk.W, pady=(0, 1))
 
         ttk.Checkbutton(
             filename_frame,
             text="サイズ比率（サイズ変更時のみ）",
-            variable=self.include_size_ratio
-        ).pack(anchor=tk.W)
+            variable=self.include_size_ratio,
+            command=self.save_settings
+        ).pack(anchor=tk.W, pady=(0, 1))
 
         ttk.Checkbutton(
             filename_frame,
             text="タイムスタンプ（YYYYMMDD_HHMMSS）",
-            variable=self.include_timestamp
-        ).pack(anchor=tk.W)
+            variable=self.include_timestamp,
+            command=self.save_settings
+        ).pack(anchor=tk.W, pady=(0, 1))
 
         ttk.Checkbutton(
             filename_frame,
             text="連番（001, 002, ...）",
-            variable=self.include_sequential
-        ).pack(anchor=tk.W)
+            variable=self.include_sequential,
+            command=self.save_settings
+        ).pack(anchor=tk.W, pady=(0, 1))
 
         ttk.Checkbutton(
             filename_frame,
             text="プリセット名（プリセット使用時のみ）",
-            variable=self.include_preset_name
-        ).pack(anchor=tk.W)
-
-        # 「処理を実行」ボタン
-        process_btn_frame = ttk.Frame(self.master)
-        process_btn_frame.pack(fill=tk.X, padx=10, pady=(8, 4))
-        self.process_button = ttk.Button(
-            process_btn_frame,
-            text="処理を実行",
-            style="Accent.TButton",
-            command=self.process_images,
-        )
-        self.process_button.pack(fill=tk.X)
+            variable=self.include_preset_name,
+            command=self.save_settings
+        ).pack(anchor=tk.W, pady=(0, 1))
 
         # プログレスバー（ウィンドウ幅に追従）
         self.progress = ttk.Progressbar(
-            self.master, orient="horizontal", mode="determinate"
+            self.content_frame,
+            orient="horizontal",
+            mode="determinate",
+            style="App.Horizontal.TProgressbar",
         )
-        self.progress.pack(fill=tk.X, padx=10, pady=(4, 4))
+        self.progress.pack(fill=tk.X, padx=8, pady=(4, 3))
 
         # 処理ログ
-        log_frame = ttk.LabelFrame(self.master, text="処理ログ", padding=(10, 5))
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(4, 10))
+        log_frame = ttk.LabelFrame(
+            self.content_frame, text="処理ログ", style="Card.TLabelframe", padding=(8, 7)
+        )
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        self.log_intro_label = ttk.Label(
+            log_frame,
+            text="処理結果をここに表示します。",
+            style="Hint.TLabel",
+        )
+        self.log_intro_label.pack(anchor=tk.W, pady=(0, 4))
 
-        log_inner = ttk.Frame(log_frame)
+        log_shell = tk.Frame(log_frame, bg=colors["border"], bd=0)
+        log_shell.pack(fill=tk.BOTH, expand=True)
+        log_inner = tk.Frame(log_shell, bg=colors["surface_alt"], padx=1, pady=1)
         log_inner.pack(fill=tk.BOTH, expand=True)
         log_scrollbar = ttk.Scrollbar(log_inner, orient=tk.VERTICAL)
         self.output_text = tk.Text(
             log_inner,
-            height=8,
+            height=6,
             width=70,
             yscrollcommand=log_scrollbar.set,
-            bg=colors["bg"],
-            fg=colors["fg"],
-            highlightthickness=1,
-            highlightcolor=colors["border"],
-            highlightbackground=colors["border"],
+            bg=colors["surface_alt"],
+            fg=colors["text"],
+            highlightthickness=0,
+            borderwidth=0,
             relief=tk.FLAT,
-            font=("Consolas", 9),
+            wrap=tk.WORD,
+            insertbackground=colors["accent"],
+            font=(self.mono_family, 9),
+            padx=6,
+            pady=6,
         )
         log_scrollbar.config(command=self.output_text.yview)
         self.output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.output_text.tag_configure("green", foreground="green")
+        self.output_text.tag_configure("green", foreground=colors["success"])
+        self.output_text.tag_configure("muted", foreground=colors["muted"])
+        self._show_log_placeholder()
+        self._refresh_ui_state()
+        self._apply_responsive_layout(self.window_width)
+        self._bind_scroll_support(self.content_frame)
 
     def setup_drop_target(self):
         self.master.drop_target_register(DND_FILES)
@@ -627,14 +1146,14 @@ class ImageProcessorApp:
 
     def _on_drag_enter(self, event):
         """ドラッグ&ドロップの視覚フィードバック（進入時）"""
-        self.file_listbox.config(bg="#e3f2fd")
+        self._set_dropzone_active(True)
 
     def _on_drag_leave(self, event):
         """ドラッグ&ドロップの視覚フィードバック（離脱時）"""
-        self.file_listbox.config(bg=self._listbox_default_bg)
+        self._set_dropzone_active(False)
 
     def drop(self, event):
-        self.file_listbox.config(bg=self._listbox_default_bg)
+        self._set_dropzone_active(False)
         files = self.master.tk.splitlist(event.data)
         self.add_files(files)
         self.process_images()
@@ -643,22 +1162,27 @@ class ImageProcessorApp:
         for file in files:
             if file not in self.file_listbox.get(0, tk.END):
                 self.file_listbox.insert(tk.END, file)
+        self._refresh_ui_state()
 
     def remove_selected_files(self):
         """選択されたファイルをリストから削除"""
         selected = self.file_listbox.curselection()
         for i in reversed(selected):
             self.file_listbox.delete(i)
+        self._refresh_ui_state()
 
     def clear_all_files(self):
         """すべてのファイルをリストからクリア"""
         self.file_listbox.delete(0, tk.END)
+        self._refresh_ui_state()
 
     def browse_files(self):
         files = filedialog.askopenfilenames(
             filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.heic;*.heif;*.webp")]
         )
-        self.add_files(files)
+        if files:
+            self.add_files(files)
+            self.process_images()
 
     def open_output_folder(self):
         """出力先フォルダをエクスプローラーで開く"""
@@ -686,9 +1210,13 @@ class ImageProcessorApp:
 
     def on_crop_change(self):
         if self.crop_var.get() == "custom":
-            self.aspect_ratio_frame.pack()
+            self.aspect_ratio_frame.pack(fill=tk.X, pady=(4, 0))
         else:
             self.aspect_ratio_frame.pack_forget()
+        self.save_settings()
+
+    def on_output_destination_change(self):
+        self._refresh_ui_state()
         self.save_settings()
 
     def on_size_type_change(self):
@@ -696,30 +1224,34 @@ class ImageProcessorApp:
         if size_type == "none":
             self.size_input_frame.pack_forget()
         else:
-            self.size_input_frame.pack()
+            self.size_input_frame.pack(fill=tk.X, pady=(4, 0))
             if size_type == "mb":
-                self.size_label.config(text="目標サイズ (MB):")
+                self.size_label.config(text="目標サイズ (MB)")
                 self.size_entry.delete(0, tk.END)
                 self.size_entry.insert(0, str(getattr(self, 'mb_size', 2)))
             elif size_type == "kb":
-                self.size_label.config(text="目標サイズ (KB):")
+                self.size_label.config(text="目標サイズ (KB)")
                 self.size_entry.delete(0, tk.END)
                 self.size_entry.insert(0, str(getattr(self, 'kb_size', 500)))
             elif size_type == "width":
-                self.size_label.config(text="目標サイズ (横px):")
+                self.size_label.config(text="目標サイズ (横px)")
                 self.size_entry.delete(0, tk.END)
                 self.size_entry.insert(0, str(getattr(self, 'width_px', 1920)))
             elif size_type == "height":
-                self.size_label.config(text="目標サイズ (縦px):")
+                self.size_label.config(text="目標サイズ (縦px)")
                 self.size_entry.delete(0, tk.END)
                 self.size_entry.insert(0, str(getattr(self, 'height_px', 1080)))
             elif size_type == "long_edge":
-                self.size_label.config(text="目標サイズ (長辺px):")
+                self.size_label.config(text="目標サイズ (長辺px)")
                 self.size_entry.delete(0, tk.END)
                 self.size_entry.insert(0, str(getattr(self, 'long_edge_px', 1920)))
+        self._refresh_ui_state()
         self.save_settings()
 
     def process_images(self):
+        if self.is_processing:
+            return
+
         files = list(self.file_listbox.get(0, tk.END))
         if not files:
             messagebox.showwarning("警告", "処理する画像ファイルが選択されていません。")
@@ -759,9 +1291,7 @@ class ImageProcessorApp:
         self.output_text.delete(1.0, tk.END)
         self.progress["maximum"] = len(files) * 100
         self.progress["value"] = 0
-
-        # 処理中はボタンを無効化
-        self.process_button.config(state="disabled")
+        self.is_processing = True
 
         # スレッドセーフなGUI更新用ヘルパー関数
         def _add_progress(value):
@@ -776,6 +1306,7 @@ class ImageProcessorApp:
         def _delete_first_item():
             if self.file_listbox.size() > 0:
                 self.file_listbox.delete(0)
+                self._refresh_ui_state()
 
         def _log_output(text, tag=None):
             if tag:
@@ -783,6 +1314,12 @@ class ImageProcessorApp:
             else:
                 self.output_text.insert(tk.END, text)
             self.output_text.see(tk.END)
+
+        def _finish_batch():
+            self.is_processing = False
+            self._refresh_ui_state()
+            if self.file_listbox.size() > 0:
+                self.master.after(50, self.process_images)
 
         max_progress = len(files) * 100
 
@@ -855,8 +1392,7 @@ class ImageProcessorApp:
                 self.master.after(0, _delete_first_item)
 
             self.master.after(0, lambda: _set_progress(max_progress))
-            # 処理完了後にボタンを再有効化
-            self.master.after(0, lambda: self.process_button.config(state="normal"))
+            self.master.after(0, _finish_batch)
 
         threading.Thread(target=process_images_thread, daemon=True).start()
 
@@ -868,6 +1404,7 @@ class ImageProcessorApp:
             self.window_height = self.master.winfo_height()
             self.window_x = self.master.winfo_x()
             self.window_y = self.master.winfo_y()
+            self._apply_responsive_layout(self.window_width)
 
             # デバウンス用タイマーがあれば停止
             if hasattr(self, 'save_timer'):
@@ -935,6 +1472,7 @@ class ImageProcessorApp:
         # カスタムの場合はプリセット名チェックを外す
         if preset == "カスタム":
             self.include_preset_name.set(False)
+            self._refresh_ui_state()
             self.save_settings()
             return
 
@@ -962,4 +1500,5 @@ class ImageProcessorApp:
             # プリセット名をファイル名に含めるチェックボックスを有効にする
             self.include_preset_name.set(True)
 
+            self._refresh_ui_state()
             self.save_settings()
