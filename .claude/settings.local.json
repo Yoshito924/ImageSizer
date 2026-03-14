@@ -6,7 +6,13 @@
       "Bash(python3:*)",
       "Bash(rm:*)",
       "Bash(python:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:pypi.org)",
+      "WebSearch"
     ],
     "deny": []
   }
