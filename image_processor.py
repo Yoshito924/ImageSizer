@@ -5,6 +5,8 @@ import os
 import tempfile
 import shutil
 
+WEBP_MAX_DIMENSION = 16383
+
 # HEIC形式のサポートを追加
 try:
     from pillow_heif import register_heif_opener
@@ -20,6 +22,49 @@ def _safe_output_path(input_path, output_path):
         name, ext = os.path.splitext(output_path)
         output_path = f"{name}_processed{ext}"
     return output_path
+
+
+def _merge_messages(*messages):
+    """空でないメッセージだけを結合する"""
+    filtered = [message for message in messages if message]
+    return " / ".join(filtered) if filtered else None
+
+
+def _limit_target_size_for_webp(target_size, size_type):
+    """WebPの最大寸法を超える目標値を安全な範囲に丸める"""
+    if size_type not in {"width", "height", "long_edge"}:
+        return target_size, None
+    if target_size <= WEBP_MAX_DIMENSION:
+        return target_size, None
+
+    label_map = {
+        "width": "横幅",
+        "height": "高さ",
+        "long_edge": "長辺",
+    }
+    return (
+        WEBP_MAX_DIMENSION,
+        f"WebPの上限に合わせて{label_map[size_type]}を{WEBP_MAX_DIMENSION}pxに制限しました",
+    )
+
+
+def _limit_image_for_webp(img):
+    """WebPの最大寸法を超える場合は、縦横比を保って縮小する"""
+    width, height = img.size
+    if width <= WEBP_MAX_DIMENSION and height <= WEBP_MAX_DIMENSION:
+        return img, None
+
+    scale = min(WEBP_MAX_DIMENSION / width, WEBP_MAX_DIMENSION / height)
+    new_width = max(1, min(WEBP_MAX_DIMENSION, int(width * scale)))
+    new_height = max(1, min(WEBP_MAX_DIMENSION, int(height * scale)))
+    resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    return (
+        resized_img,
+        (
+            f"WebPの上限に合わせて {width}x{height}px から "
+            f"{new_width}x{new_height}px に縮小しました"
+        ),
+    )
 
 
 def crop_image(img, crop_type, aspect_ratio=None):
@@ -94,6 +139,18 @@ def process_image(
 ):
     """画像を処理する関数"""
     with Image.open(input_path) as img:
+        notes = []
+        webp_limit_note = None
+
+        def add_note(note):
+            if note and note not in notes:
+                notes.append(note)
+
+        def set_webp_limit_note(note):
+            nonlocal webp_limit_note
+            if note:
+                webp_limit_note = note
+
         # EXIFのOrientationタグを適用して画像を正しい向きに回転
         img = ImageOps.exif_transpose(img)
         
@@ -112,6 +169,7 @@ def process_image(
         # 出力フォーマットの設定
         if output_format:
             ext = f".{output_format.lower()}"
+        is_webp_output = ext.lower() == ".webp"
 
         # RGBAモードの画像をJPEG出力する場合はRGBに変換（JPEGはRGBAをサポートしない）
         if img.mode == 'RGBA' and ext.lower() in ['.jpg', '.jpeg']:
@@ -166,15 +224,17 @@ def process_image(
         if size_type == "none":
             output_path = os.path.join(output_folder, f"{output_filename}{ext}")
             output_path = _safe_output_path(input_path, output_path)
-            if output_format == 'webp':
-                img.save(output_path, 'WEBP', quality=quality)
+            if is_webp_output:
+                save_img, note = _limit_image_for_webp(img)
+                set_webp_limit_note(note)
+                save_img.save(output_path, 'WEBP', quality=quality)
             elif output_format == 'png':
                 img.save(output_path, 'PNG', optimize=True)
             else:
                 img.save(output_path, quality=quality, optimize=True)
             if progress_callback:
                 progress_callback(1.0)
-            return output_path, 1.0, None
+            return output_path, 1.0, _merge_messages(*notes, webp_limit_note)
 
         if size_type == "mb":
             target_size_mb = float(target_size)
@@ -189,6 +249,9 @@ def process_image(
             size_ratio = (target_size_mb / original_size) ** 0.5
         else:
             target_size = int(target_size)
+            if is_webp_output:
+                target_size, note = _limit_target_size_for_webp(target_size, size_type)
+                add_note(note)
             if size_type == "width":
                 target_dimension = cropped_width
             elif size_type == "height":
@@ -217,12 +280,16 @@ def process_image(
 
                 # LANCZOSは非推奨なので、Resampling.LANCZOSを使用
                 resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                if is_webp_output:
+                    resized_img, note = _limit_image_for_webp(resized_img)
+                    new_width, new_height = resized_img.size
+                    set_webp_limit_note(note)
 
                 current_ratio = int(
                     (new_width * new_height) / (cropped_width * cropped_height) * 100
                 )
 
-                if output_format == 'webp':
+                if is_webp_output:
                     resized_img.save(temp_path, 'WEBP', quality=quality)
                 elif output_format == 'png':
                     resized_img.save(temp_path, 'PNG', optimize=True)
@@ -274,7 +341,7 @@ def process_image(
                     shutil.copy2(temp_path, output_path)
                     if progress_callback:
                         progress_callback(1.0)
-                    return output_path, size_ratio, None
+                    return output_path, size_ratio, _merge_messages(*notes, webp_limit_note)
 
                 if operation == "compress":
                     size_ratio *= 0.85  # より大きなステップで調整
@@ -292,11 +359,11 @@ def process_image(
                 shutil.copy2(last_valid_path, output_path)
                 if progress_callback:
                     progress_callback(1.0)
-                return output_path, size_ratio, "近似値で保存されました"
+                return output_path, size_ratio, _merge_messages(*notes, webp_limit_note, "近似値で保存されました")
             
             if progress_callback:
                 progress_callback(1.0)
-            return None, 0, "目標サイズに到達できませんでした"
+            return None, 0, _merge_messages(*notes, webp_limit_note, "目標サイズに到達できませんでした")
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)

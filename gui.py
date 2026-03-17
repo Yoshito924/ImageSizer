@@ -1360,10 +1360,7 @@ class ImageProcessorApp:
                     )
 
                     # ログメッセージを構築（スレッド内で計算してからGUIに送る）
-                    if message:
-                        log_text = f"{file}: {message}\n"
-                        log_tag = "green"
-                    elif output_path:
+                    if output_path:
                         final_size = os.path.getsize(output_path) / (1024 * 1024)
                         original_size = os.path.getsize(file) / (1024 * 1024)
                         with Image.open(file) as img:
@@ -1377,7 +1374,12 @@ class ImageProcessorApp:
                             f"  最終サイズ: {final_size:.2f} MB, {final_width}x{final_height}px\n"
                             f"  サイズ比率: {size_ratio:.2%}\n"
                         )
+                        if message:
+                            log_text += f"  注記: {message}\n"
                         log_tag = None
+                    elif message:
+                        log_text = f"{file}: {message}\n"
+                        log_tag = "green"
                     else:
                         log_text = f"処理失敗: {file}\n"
                         log_tag = None
