@@ -1,11 +1,13 @@
 import json
 import os
 import platform
+import queue
 import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, font as tkfont
 from tkinterdnd2 import TkinterDnD, DND_FILES
 import threading
+import traceback
 from PIL import Image
 from image_processor import process_image
 
@@ -1288,25 +1290,31 @@ class ImageProcessorApp:
         else:
             output_format = None
 
+        # Tkinter変数はメインスレッドで読み取り、ワーカーには純粋な値だけ渡す
+        output_dest = self.output_dest_var.get()
+        filename_pattern = {
+            "include_crop_type": self.include_crop_type.get(),
+            "include_size_ratio": self.include_size_ratio.get(),
+            "include_timestamp": self.include_timestamp.get(),
+            "include_sequential": self.include_sequential.get(),
+            "include_preset_name": self.include_preset_name.get(),
+        }
+        preset_value = self.preset_var.get()
+        preset_name = preset_value if preset_value != "カスタム" else None
+
+        output_base = None
+        if output_dest == "output":
+            output_base = os.path.join(os.path.dirname(__file__), "output")
+            if not os.path.exists(output_base):
+                os.makedirs(output_base)
+
         self.output_text.delete(1.0, tk.END)
         self.progress["maximum"] = len(files) * 100
         self.progress["value"] = 0
         self.is_processing = True
 
-        # スレッドセーフなGUI更新用ヘルパー関数
-        def _add_progress(value):
-            self.progress["value"] += value
-
-        def update_progress(file_progress):
-            self.master.after(0, lambda v=file_progress: _add_progress(v))
-
-        def _set_progress(value):
-            self.progress["value"] = value
-
-        def _delete_first_item():
-            if self.file_listbox.size() > 0:
-                self.file_listbox.delete(0)
-                self._refresh_ui_state()
+        max_progress = len(files) * 100
+        event_queue = queue.Queue()
 
         def _log_output(text, tag=None):
             if tag:
@@ -1315,87 +1323,110 @@ class ImageProcessorApp:
                 self.output_text.insert(tk.END, text)
             self.output_text.see(tk.END)
 
+        def _delete_first_item():
+            if self.file_listbox.size() > 0:
+                self.file_listbox.delete(0)
+                self._refresh_ui_state()
+
         def _finish_batch():
             self.is_processing = False
             self._refresh_ui_state()
             if self.file_listbox.size() > 0:
                 self.master.after(50, self.process_images)
 
-        max_progress = len(files) * 100
+        def pump_events():
+            # ワーカースレッドから送られたイベントをメインスレッドで反映する
+            try:
+                while True:
+                    event = event_queue.get_nowait()
+                    kind = event[0]
+                    if kind == "progress_add":
+                        self.progress["value"] += event[1]
+                    elif kind == "progress_set":
+                        self.progress["value"] = event[1]
+                    elif kind == "log":
+                        _log_output(event[1], event[2])
+                    elif kind == "delete_first":
+                        _delete_first_item()
+                    elif kind == "done":
+                        self.progress["value"] = max_progress
+                        _finish_batch()
+                        return
+            except queue.Empty:
+                pass
+            self.master.after(50, pump_events)
 
         def process_images_thread():
-            # 出力先の決定
-            output_dest = self.output_dest_var.get()
-            if output_dest == "output":
-                output_base = os.path.join(os.path.dirname(__file__), "output")
-                if not os.path.exists(output_base):
-                    os.makedirs(output_base)
-
-            for i, file in enumerate(files):
-                try:
-                    if output_dest == "output":
-                        output_folder = output_base
-                    else:
-                        output_folder = os.path.dirname(file)
-                    output_path, size_ratio, message = process_image(
-                        file,
-                        output_folder,
-                        target_size,
-                        operation,
-                        size_type,
-                        crop_type,
-                        aspect_ratio,
-                        progress_callback=lambda p: update_progress(
-                            p * 100 / len(files)
-                        ),
-                        output_format=output_format,
-                        filename_pattern={
-                            "include_crop_type": self.include_crop_type.get(),
-                            "include_size_ratio": self.include_size_ratio.get(),
-                            "include_timestamp": self.include_timestamp.get(),
-                            "include_sequential": self.include_sequential.get(),
-                            "include_preset_name": self.include_preset_name.get()
-                        },
-                        preset_name=self.preset_var.get() if self.preset_var.get() != "カスタム" else None
+            try:
+                for i, file in enumerate(files):
+                    event_queue.put(
+                        ("log", f"[{i + 1}/{len(files)}] 処理開始: {file}\n", "muted")
                     )
-
-                    # ログメッセージを構築（スレッド内で計算してからGUIに送る）
-                    if output_path:
-                        final_size = os.path.getsize(output_path) / (1024 * 1024)
-                        original_size = os.path.getsize(file) / (1024 * 1024)
-                        with Image.open(file) as img:
-                            original_width, original_height = img.size
-                        with Image.open(output_path) as img:
-                            final_width, final_height = img.size
-                        log_text = (
-                            f"処理完了: {file}\n"
-                            f"  出力: {output_path}\n"
-                            f"  元のサイズ: {original_size:.2f} MB, {original_width}x{original_height}px\n"
-                            f"  最終サイズ: {final_size:.2f} MB, {final_width}x{final_height}px\n"
-                            f"  サイズ比率: {size_ratio:.2%}\n"
+                    try:
+                        if output_dest == "output":
+                            output_folder = output_base
+                        else:
+                            output_folder = os.path.dirname(file)
+                        output_path, size_ratio, message = process_image(
+                            file,
+                            output_folder,
+                            target_size,
+                            operation,
+                            size_type,
+                            crop_type,
+                            aspect_ratio,
+                            progress_callback=lambda p: event_queue.put(
+                                ("progress_add", p * 100 / len(files))
+                            ),
+                            output_format=output_format,
+                            filename_pattern=filename_pattern,
+                            preset_name=preset_name,
                         )
-                        if message:
-                            log_text += f"  注記: {message}\n"
-                        log_tag = None
-                    elif message:
-                        log_text = f"{file}: {message}\n"
-                        log_tag = "green"
-                    else:
-                        log_text = f"処理失敗: {file}\n"
-                        log_tag = None
 
-                    self.master.after(0, lambda t=log_text, tag=log_tag: _log_output(t, tag))
-                except Exception as e:
-                    err_msg = f"エラー ({file}): {str(e)}\n"
-                    self.master.after(0, lambda m=err_msg: _log_output(m))
+                        if output_path:
+                            final_size = os.path.getsize(output_path) / (1024 * 1024)
+                            original_size = os.path.getsize(file) / (1024 * 1024)
+                            with Image.open(file) as img:
+                                original_width, original_height = img.size
+                            with Image.open(output_path) as img:
+                                final_width, final_height = img.size
+                            log_text = (
+                                f"処理完了: {file}\n"
+                                f"  出力: {output_path}\n"
+                                f"  元のサイズ: {original_size:.2f} MB, {original_width}x{original_height}px\n"
+                                f"  最終サイズ: {final_size:.2f} MB, {final_width}x{final_height}px\n"
+                                f"  サイズ比率: {size_ratio:.2%}\n"
+                            )
+                            if message:
+                                log_text += f"  注記: {message}\n"
+                            log_tag = None
+                        elif message:
+                            log_text = f"{file}: {message}\n"
+                            log_tag = "green"
+                        else:
+                            log_text = f"処理失敗: {file}\n"
+                            log_tag = None
 
-                progress_val = (i + 1) * 100
-                self.master.after(0, lambda v=progress_val: _set_progress(v))
-                self.master.after(0, _delete_first_item)
+                        event_queue.put(("log", log_text, log_tag))
+                    except BaseException as e:
+                        err_msg = (
+                            f"エラー ({file}): {type(e).__name__}: {e}\n"
+                            f"{traceback.format_exc()}"
+                        )
+                        event_queue.put(("log", err_msg, None))
 
-            self.master.after(0, lambda: _set_progress(max_progress))
-            self.master.after(0, _finish_batch)
+                    event_queue.put(("progress_set", (i + 1) * 100))
+                    event_queue.put(("delete_first",))
+            except BaseException as e:
+                err_msg = (
+                    f"バッチ処理中の予期せぬエラー: {type(e).__name__}: {e}\n"
+                    f"{traceback.format_exc()}"
+                )
+                event_queue.put(("log", err_msg, None))
+            finally:
+                event_queue.put(("done",))
 
+        self.master.after(50, pump_events)
         threading.Thread(target=process_images_thread, daemon=True).start()
 
     def on_window_configure(self, event):

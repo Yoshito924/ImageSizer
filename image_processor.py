@@ -135,9 +135,18 @@ def process_image(
     progress_callback=None,
     output_format=None,
     filename_pattern="default",
-    preset_name=None
+    preset_name=None,
+    trace_callback=None,
 ):
     """画像を処理する関数"""
+    def trace(message):
+        if trace_callback:
+            try:
+                trace_callback(message)
+            except Exception:
+                pass
+
+    trace(f"open: {input_path}")
     with Image.open(input_path) as img:
         notes = []
         webp_limit_note = None
@@ -151,8 +160,9 @@ def process_image(
             if note:
                 webp_limit_note = note
 
-        # EXIFのOrientationタグを適用して画像を正しい向きに回転
+        trace(f"opened mode={img.mode} size={img.size}")
         img = ImageOps.exif_transpose(img)
+        trace("exif_transpose done")
         
         original_size = os.path.getsize(input_path) / (1024 * 1024)
         original_width, original_height = img.size
@@ -175,8 +185,10 @@ def process_image(
         if img.mode == 'RGBA' and ext.lower() in ['.jpg', '.jpeg']:
             img = img.convert('RGB')
 
+        trace(f"crop start: {crop_type}")
         img = crop_image(img, crop_type, aspect_ratio)
         cropped_width, cropped_height = img.size
+        trace(f"crop done: {cropped_width}x{cropped_height}")
 
         # 出力ファイル名のベース部分を生成
         output_filename = name
@@ -236,16 +248,46 @@ def process_image(
                 progress_callback(1.0)
             return output_path, 1.0, _merge_messages(*notes, webp_limit_note)
 
+        def _save_without_resize(note_text):
+            """元のファイルがすでに目標以下のときにリサイズなしで保存する"""
+            save_path = os.path.join(output_folder, f"{output_filename}{ext}")
+            save_path = _safe_output_path(input_path, save_path)
+            trace(f"pass-through save to {save_path}")
+            save_img = img
+            webp_note = None
+            if is_webp_output:
+                save_img, webp_note = _limit_image_for_webp(save_img)
+                set_webp_limit_note(webp_note)
+                save_img.save(save_path, 'WEBP', quality=quality)
+            elif output_format == 'png':
+                save_img.save(save_path, 'PNG', optimize=True)
+            elif ext.lower() in [".jpg", ".jpeg"]:
+                save_img.save(save_path, quality=quality, optimize=True)
+            else:
+                save_img.save(save_path, optimize=True)
+            if progress_callback:
+                progress_callback(1.0)
+            add_note(note_text)
+            return save_path, 1.0, _merge_messages(*notes, webp_limit_note)
+
         if size_type == "mb":
             target_size_mb = float(target_size)
             if operation == "auto":
-                operation = "compress" if original_size > target_size_mb else "upscale"
+                if original_size <= target_size_mb:
+                    return _save_without_resize(
+                        f"元のサイズ {original_size:.2f}MB が目標 {target_size_mb:.2f}MB 以下のためリサイズ不要"
+                    )
+                operation = "compress"
             size_ratio = (target_size_mb / original_size) ** 0.5
         elif size_type == "kb":
             target_size_kb = float(target_size)
             target_size_mb = target_size_kb / 1024.0  # KBをMBに変換
             if operation == "auto":
-                operation = "compress" if original_size > target_size_mb else "upscale"
+                if original_size <= target_size_mb:
+                    return _save_without_resize(
+                        f"元のサイズ {original_size * 1024:.0f}KB が目標 {target_size_kb:.0f}KB 以下のためリサイズ不要"
+                    )
+                operation = "compress"
             size_ratio = (target_size_mb / original_size) ** 0.5
         else:
             target_size = int(target_size)
@@ -274,11 +316,11 @@ def process_image(
             max_iterations = 10  # 最大反復回数を減らして高速化
             last_valid_path = None
             while iteration < max_iterations:
-                # 精度を保つためroundを使用
+                trace(f"iter {iteration}: size_ratio={size_ratio:.3f} quality={quality}")
                 new_width = round(cropped_width * size_ratio)
                 new_height = round(cropped_height * size_ratio)
 
-                # LANCZOSは非推奨なので、Resampling.LANCZOSを使用
+                trace(f"iter {iteration}: resize to {new_width}x{new_height}")
                 resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
                 if is_webp_output:
                     resized_img, note = _limit_image_for_webp(resized_img)
@@ -289,6 +331,7 @@ def process_image(
                     (new_width * new_height) / (cropped_width * cropped_height) * 100
                 )
 
+                trace(f"iter {iteration}: save to temp {temp_path}")
                 if is_webp_output:
                     resized_img.save(temp_path, 'WEBP', quality=quality)
                 elif output_format == 'png':
@@ -298,6 +341,7 @@ def process_image(
                         resized_img.save(temp_path, quality=quality, optimize=True)
                     else:
                         resized_img.save(temp_path, optimize=True)
+                trace(f"iter {iteration}: save done")
 
                 new_size = os.path.getsize(temp_path) / (1024 * 1024)
 
@@ -338,7 +382,9 @@ def process_image(
 
                     output_path = os.path.join(output_folder, f"{output_filename}{ext}")
                     output_path = _safe_output_path(input_path, output_path)
+                    trace(f"copy to {output_path}")
                     shutil.copy2(temp_path, output_path)
+                    trace("copy done")
                     if progress_callback:
                         progress_callback(1.0)
                     return output_path, size_ratio, _merge_messages(*notes, webp_limit_note)
