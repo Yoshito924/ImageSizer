@@ -123,6 +123,39 @@ def crop_image(img, crop_type, aspect_ratio=None):
     return img.crop((left, top, right, bottom))
 
 
+def would_overwrite_input(
+    input_path,
+    output_folder,
+    output_format=None,
+    filename_pattern=None,
+    preset_name=None,
+):
+    """出力が入力ファイルと同じパスになる可能性を保守的に判定する。
+
+    実行前にGUIから呼び、同名出力の恐れがあれば警告を出すためのヘルパー。
+    crop_type や size_ratio による改名は実行時に確定するため、
+    タイムスタンプ・連番・（選択された）プリセット名が付かない限りリスクありと見なす。
+    """
+    filename_pattern = filename_pattern or {}
+
+    if os.path.abspath(output_folder) != os.path.abspath(os.path.dirname(input_path)):
+        return False
+
+    _, ext = os.path.splitext(os.path.basename(input_path))
+    out_ext = f".{output_format.lower()}" if output_format else ext
+    if out_ext.lower() != ext.lower():
+        return False
+
+    if filename_pattern.get("include_timestamp", False):
+        return False
+    if filename_pattern.get("include_sequential", False):
+        return False
+    if filename_pattern.get("include_preset_name", False) and preset_name:
+        return False
+
+    return True
+
+
 def process_image(
     input_path,
     output_folder,

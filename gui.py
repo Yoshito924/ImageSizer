@@ -9,7 +9,7 @@ from tkinterdnd2 import TkinterDnD, DND_FILES
 import threading
 import traceback
 from PIL import Image
-from image_processor import process_image
+from image_processor import process_image, would_overwrite_input
 
 DEFAULT_SETTINGS = {
     "always_on_top": False,
@@ -37,6 +37,7 @@ DEFAULT_SETTINGS = {
     "include_sequential": False,
     "include_preset_name": False,
     "output_destination": "original",
+    "warn_on_overwrite": True,
 }
 
 
@@ -410,6 +411,7 @@ class ImageProcessorApp:
                 self.file_buttons_hint_label.pack(anchor=tk.W, pady=(1, 0))
             else:
                 self.file_select_button.pack(side=tk.LEFT, padx=(0, 6))
+                self.file_process_button.pack(side=tk.LEFT, padx=(0, 6))
                 self.file_remove_button.pack(side=tk.LEFT, padx=(0, 6))
                 self.file_clear_button.pack(side=tk.LEFT)
                 self.file_buttons_hint_label.pack(side=tk.RIGHT)
@@ -480,6 +482,7 @@ class ImageProcessorApp:
         self.include_sequential_value = settings["include_sequential"]
         self.include_preset_name_value = settings["include_preset_name"]
         self.output_destination = settings["output_destination"]
+        self.warn_on_overwrite = settings["warn_on_overwrite"]
 
     def load_presets(self):
         """プリセットをJSONファイルからロード"""
@@ -571,6 +574,7 @@ class ImageProcessorApp:
                 "include_sequential": self.include_sequential.get() if hasattr(self, 'include_sequential') else getattr(self, 'include_sequential_value', False),
                 "include_preset_name": self.include_preset_name.get() if hasattr(self, 'include_preset_name') else getattr(self, 'include_preset_name_value', False),
                 "output_destination": self.output_dest_var.get() if hasattr(self, 'output_dest_var') else getattr(self, 'output_destination', "original"),
+                "warn_on_overwrite": self.warn_on_overwrite_var.get() if hasattr(self, 'warn_on_overwrite_var') else getattr(self, 'warn_on_overwrite', True),
                 "window_width": self.window_width,
                 "window_height": self.window_height,
                 "window_x": self.window_x,
@@ -714,6 +718,13 @@ class ImageProcessorApp:
             command=self.browse_files,
         )
         self.file_select_button.pack(side=tk.LEFT, padx=(0, 6))
+        self.file_process_button = ttk.Button(
+            self.file_buttons_frame,
+            text="処理を開始",
+            style="Action.TButton",
+            command=self.process_images,
+        )
+        self.file_process_button.pack(side=tk.LEFT, padx=(0, 6))
         self.file_remove_button = ttk.Button(
             self.file_buttons_frame,
             text="選択を削除",
@@ -730,6 +741,7 @@ class ImageProcessorApp:
         self.file_clear_button.pack(side=tk.LEFT)
         self.file_action_buttons = [
             self.file_select_button,
+            self.file_process_button,
             self.file_remove_button,
             self.file_clear_button,
         ]
@@ -1033,6 +1045,16 @@ class ImageProcessorApp:
             command=self.open_output_folder
         ).pack(anchor=tk.W, pady=(4, 0))
 
+        self.warn_on_overwrite_var = tk.BooleanVar(
+            value=getattr(self, 'warn_on_overwrite', True)
+        )
+        ttk.Checkbutton(
+            output_dest_frame,
+            text="元画像を上書きしそうなとき警告する",
+            variable=self.warn_on_overwrite_var,
+            command=self.save_settings,
+        ).pack(anchor=tk.W, pady=(4, 0))
+
         # 出力ファイル名パターン選択部分（左側）
         filename_frame = ttk.LabelFrame(
             self.left_frame, text="出力ファイル名パターン", style="Card.TLabelframe", padding=(8, 7)
@@ -1307,6 +1329,42 @@ class ImageProcessorApp:
             output_base = os.path.join(os.path.dirname(__file__), "output")
             if not os.path.exists(output_base):
                 os.makedirs(output_base)
+
+        if self.warn_on_overwrite_var.get():
+            overwrite_candidates = []
+            for file in files:
+                check_folder = output_base if output_dest == "output" else os.path.dirname(file)
+                if would_overwrite_input(
+                    file,
+                    check_folder,
+                    output_format=output_format,
+                    filename_pattern=filename_pattern,
+                    preset_name=preset_name,
+                ):
+                    overwrite_candidates.append(file)
+
+            if overwrite_candidates:
+                sample = "\n".join(os.path.basename(f) for f in overwrite_candidates[:5])
+                more = (
+                    f"\n...ほか {len(overwrite_candidates) - 5} 件"
+                    if len(overwrite_candidates) > 5
+                    else ""
+                )
+                message = (
+                    f"出力が元画像と同じパスになりそうなファイルが {len(overwrite_candidates)} 件あります。\n"
+                    f"続行すると、競合するファイルは `_processed` を付けて保存します。\n\n"
+                    f"{sample}{more}\n\n"
+                    f"処理を続けますか？"
+                )
+                if not messagebox.askyesno("上書きの可能性", message):
+                    self.output_text.delete(1.0, tk.END)
+                    self.output_text.insert(
+                        tk.END,
+                        "上書き警告のため処理を中止しました。設定を調整してから「処理を開始」で再実行できます。\n",
+                        "muted",
+                    )
+                    self.output_text.see(tk.END)
+                    return
 
         self.output_text.delete(1.0, tk.END)
         self.progress["maximum"] = len(files) * 100
