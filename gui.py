@@ -62,6 +62,12 @@ class ImageProcessorApp:
         self.configure_styles()
         self.is_processing = False
 
+        # 終了時にワーカーへ停止を通知するイベントと追跡用ハンドル
+        self._shutdown_event = threading.Event()
+        self._worker_thread = None
+        # アプリが Popen で起動した子プロセス（ターミナル等）を登録する
+        self._child_processes = []
+
         # ウィンドウ位置とサイズ変更のイベントをバインド
         master.bind("<Configure>", self.on_window_configure)
 
@@ -1417,6 +1423,11 @@ class ImageProcessorApp:
         def process_images_thread():
             try:
                 for i, file in enumerate(files):
+                    if self._shutdown_event.is_set():
+                        event_queue.put(
+                            ("log", "アプリ終了要求のため処理を中断しました。\n", "muted")
+                        )
+                        break
                     event_queue.put(
                         ("log", f"[{i + 1}/{len(files)}] 処理開始: {file}\n", "muted")
                     )
@@ -1485,7 +1496,8 @@ class ImageProcessorApp:
                 event_queue.put(("done",))
 
         self.master.after(50, pump_events)
-        threading.Thread(target=process_images_thread, daemon=True).start()
+        self._worker_thread = threading.Thread(target=process_images_thread, daemon=True)
+        self._worker_thread.start()
 
     def on_window_configure(self, event):
         """ウィンドウのサイズや位置が変更されたときの処理"""
@@ -1537,6 +1549,29 @@ class ImageProcessorApp:
             self.window_x = 100
             self.window_y = 100
 
+    def register_child_process(self, proc):
+        """起動した subprocess.Popen を登録し、アプリ終了時に停止させる。"""
+        if proc is not None:
+            self._child_processes.append(proc)
+
+    def _terminate_child_processes(self):
+        """登録済みの子プロセス（ターミナル等）を順次停止する。"""
+        for proc in list(self._child_processes):
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+            except Exception:
+                pass
+        for proc in list(self._child_processes):
+            try:
+                proc.wait(timeout=0.5)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        self._child_processes.clear()
+
     def on_closing(self):
         """アプリケーション終了時の処理"""
         # 保留中のタイマーがあればキャンセル
@@ -1548,6 +1583,15 @@ class ImageProcessorApp:
 
         # 最終的な設定を保存
         self.save_settings()
+
+        # ワーカースレッドへ停止を通知して短時間待機
+        self._shutdown_event.set()
+        worker = self._worker_thread
+        if worker is not None and worker.is_alive():
+            worker.join(timeout=1.0)
+
+        # 登録済みの子プロセス（ターミナル等）を停止
+        self._terminate_child_processes()
 
         # ウィンドウを閉じる
         self.master.destroy()
