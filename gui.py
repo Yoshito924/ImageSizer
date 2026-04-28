@@ -67,6 +67,7 @@ class ImageProcessorApp:
         self._worker_thread = None
         # アプリが Popen で起動した子プロセス（ターミナル等）を登録する
         self._child_processes = []
+        self._is_closing = False
 
         # ウィンドウ位置とサイズ変更のイベントをバインド
         master.bind("<Configure>", self.on_window_configure)
@@ -1555,16 +1556,25 @@ class ImageProcessorApp:
             self._child_processes.append(proc)
 
     def _terminate_child_processes(self):
-        """登録済みの子プロセス（ターミナル等）を順次停止する。"""
+        """登録済みの子プロセス（ターミナル等）をプロセスツリーごと停止する。"""
         for proc in list(self._child_processes):
             try:
-                if proc.poll() is None:
+                if proc.poll() is not None:
+                    continue
+                if platform.system() == "Windows":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+                else:
                     proc.terminate()
             except Exception:
                 pass
         for proc in list(self._child_processes):
             try:
-                proc.wait(timeout=0.5)
+                proc.wait(timeout=1.0)
             except Exception:
                 try:
                     proc.kill()
@@ -1572,8 +1582,86 @@ class ImageProcessorApp:
                     pass
         self._child_processes.clear()
 
+    def _get_windows_process_ancestors(self):
+        """現在のプロセスから親方向へ辿った Windows プロセス情報を取得する。"""
+        if platform.system() != "Windows":
+            return []
+
+        command = (
+            f"$current = {os.getpid()}; "
+            "$items = @(); "
+            "while ($current) { "
+            "  $p = Get-CimInstance Win32_Process -Filter \"ProcessId=$current\"; "
+            "  if (-not $p) { break }; "
+            "  $items += [pscustomobject]@{ "
+            "    ProcessId = [int]$p.ProcessId; "
+            "    ParentProcessId = [int]$p.ParentProcessId; "
+            "    Name = [string]$p.Name "
+            "  }; "
+            "  if ($p.ParentProcessId -eq 0) { break }; "
+            "  $current = $p.ParentProcessId "
+            "}; "
+            "$items | ConvertTo-Json -Compress"
+        )
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return []
+            ancestors = json.loads(result.stdout)
+            if isinstance(ancestors, dict):
+                return [ancestors]
+            if isinstance(ancestors, list):
+                return ancestors
+        except Exception:
+            pass
+        return []
+
+    def _close_launcher_terminal(self):
+        """bat/ps1 経由で起動された外側のターミナルを閉じる。"""
+        ancestors = self._get_windows_process_ancestors()
+        if not ancestors:
+            return
+
+        shell_names = {"cmd.exe", "powershell.exe", "pwsh.exe"}
+        skip_parent_names = {"windowsterminal.exe"}
+        shell_index = None
+        for index, process_info in enumerate(ancestors[1:], start=1):
+            name = str(process_info.get("Name", "")).lower()
+            if name in shell_names:
+                shell_index = index
+
+        if shell_index is None:
+            return
+
+        parent_name = ""
+        if shell_index + 1 < len(ancestors):
+            parent_name = str(ancestors[shell_index + 1].get("Name", "")).lower()
+        if parent_name in skip_parent_names:
+            return
+
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(ancestors[shell_index]["ProcessId"]), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except Exception:
+            pass
+
     def on_closing(self):
         """アプリケーション終了時の処理"""
+        if self._is_closing:
+            return
+        self._is_closing = True
+
         # 保留中のタイマーがあればキャンセル
         if hasattr(self, 'save_timer'):
             try:
@@ -1592,6 +1680,9 @@ class ImageProcessorApp:
 
         # 登録済みの子プロセス（ターミナル等）を停止
         self._terminate_child_processes()
+
+        # bat/ps1 などで起動された場合に残る起動元ターミナルを閉じる
+        self._close_launcher_terminal()
 
         # ウィンドウを閉じる
         self.master.destroy()
