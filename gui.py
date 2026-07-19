@@ -1437,6 +1437,19 @@ class ImageProcessorApp:
                             output_folder = output_base
                         else:
                             output_folder = os.path.dirname(file)
+
+                        # process_image は累積の進捗率を渡してくるため、
+                        # 前回値との差分だけをプログレスバーに加算する
+                        progress_state = {"last": 0.0}
+
+                        def on_progress(p, _state=progress_state):
+                            delta = max(0.0, p - _state["last"])
+                            _state["last"] = p
+                            if delta > 0:
+                                event_queue.put(
+                                    ("progress_add", delta * 100 / len(files))
+                                )
+
                         output_path, size_ratio, message = process_image(
                             file,
                             output_folder,
@@ -1445,9 +1458,7 @@ class ImageProcessorApp:
                             size_type,
                             crop_type,
                             aspect_ratio,
-                            progress_callback=lambda p: event_queue.put(
-                                ("progress_add", p * 100 / len(files))
-                            ),
+                            progress_callback=on_progress,
                             output_format=output_format,
                             filename_pattern=filename_pattern,
                             preset_name=preset_name,
@@ -1458,6 +1469,13 @@ class ImageProcessorApp:
                             original_size = os.path.getsize(file) / (1024 * 1024)
                             with Image.open(file) as img:
                                 original_width, original_height = img.size
+                                # EXIFの回転指定がある場合は表示上の縦横に合わせる
+                                orientation = img.getexif().get(0x0112)
+                                if orientation in (5, 6, 7, 8):
+                                    original_width, original_height = (
+                                        original_height,
+                                        original_width,
+                                    )
                             with Image.open(output_path) as img:
                                 final_width, final_height = img.size
                             log_text = (

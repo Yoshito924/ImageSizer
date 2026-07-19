@@ -167,11 +167,14 @@ def process_image(
     quality=85,
     progress_callback=None,
     output_format=None,
-    filename_pattern="default",
+    filename_pattern=None,
     preset_name=None,
     trace_callback=None,
 ):
     """画像を処理する関数"""
+    if not isinstance(filename_pattern, dict):
+        filename_pattern = {}
+
     def trace(message):
         if trace_callback:
             try:
@@ -214,8 +217,12 @@ def process_image(
             ext = f".{output_format.lower()}"
         is_webp_output = ext.lower() == ".webp"
 
-        # RGBAモードの画像をJPEG出力する場合はRGBに変換（JPEGはRGBAをサポートしない）
-        if img.mode == 'RGBA' and ext.lower() in ['.jpg', '.jpeg']:
+        # 出力形式が対応していないモードは事前に変換する
+        # （JPEGはRGBA/LA/P等を、PNGはCMYKをサポートしない）
+        if ext.lower() in ['.jpg', '.jpeg']:
+            if img.mode not in ('RGB', 'L', 'CMYK'):
+                img = img.convert('RGB')
+        elif ext.lower() in ['.png', '.webp'] and img.mode == 'CMYK':
             img = img.convert('RGB')
 
         trace(f"crop start: {crop_type}")
