@@ -1,11 +1,62 @@
 from datetime import datetime
+from contextlib import contextmanager
+from io import BytesIO
 
 from PIL import Image, ImageOps
 import os
 import tempfile
 import shutil
 
+try:
+    from resvg_py import svg_to_bytes
+except ImportError:
+    svg_to_bytes = None
+
 WEBP_MAX_DIMENSION = 16383
+
+
+@contextmanager
+def open_supported_image(input_path, target_size=None, size_type=None):
+    """Pillow対応画像に加え、SVGをラスタライズして開く。"""
+    if os.path.splitext(input_path)[1].lower() != ".svg":
+        with Image.open(input_path) as img:
+            yield img
+        return
+
+    if svg_to_bytes is None:
+        raise RuntimeError(
+            "SVGの処理にはresvg-pyが必要です。"
+            " `pip install -r requirements.txt` を実行してください。"
+        )
+
+    render_options = {
+        "svg_path": os.fspath(input_path),
+        "resources_dir": os.path.dirname(os.path.abspath(input_path)),
+    }
+    png_data = svg_to_bytes(**render_options)
+
+    # SVGを小さな固有サイズでラスタライズしてから拡大すると
+    # 輪郭が荒れる。クロップの余裕も見込み、目標辺の最大4倍で先に描画する。
+    if size_type in {"width", "height", "long_edge"} and target_size is not None:
+        with BytesIO(png_data) as initial_buffer, Image.open(initial_buffer) as initial:
+            width, height = initial.size
+
+        requested_size = max(1, int(float(target_size)))
+        target_render_size = min(requested_size * 4, max(requested_size, 8192))
+        if size_type == "width":
+            basis = width
+        elif size_type == "height":
+            basis = height
+        else:
+            basis = max(width, height)
+
+        if basis < target_render_size:
+            render_options["zoom"] = target_render_size / basis
+            png_data = svg_to_bytes(**render_options)
+
+    with BytesIO(png_data) as buffer, Image.open(buffer) as img:
+        img.load()
+        yield img
 
 # HEIC形式のサポートを追加
 try:
@@ -142,7 +193,10 @@ def would_overwrite_input(
         return False
 
     _, ext = os.path.splitext(os.path.basename(input_path))
-    out_ext = f".{output_format.lower()}" if output_format else ext
+    if not output_format and ext.lower() == ".svg":
+        out_ext = ".png"
+    else:
+        out_ext = f".{output_format.lower()}" if output_format else ext
     if out_ext.lower() != ext.lower():
         return False
 
@@ -183,7 +237,7 @@ def process_image(
                 pass
 
     trace(f"open: {input_path}")
-    with Image.open(input_path) as img:
+    with open_supported_image(input_path, target_size, size_type) as img:
         notes = []
         webp_limit_note = None
 
@@ -215,6 +269,9 @@ def process_image(
         # 出力フォーマットの設定
         if output_format:
             ext = f".{output_format.lower()}"
+        elif ext.lower() == ".svg":
+            ext = ".png"
+            add_note("SVG入力はPNG形式で出力しました")
         is_webp_output = ext.lower() == ".webp"
 
         # 出力形式が対応していないモードは事前に変換する

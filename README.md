@@ -44,6 +44,25 @@
 
 ## 対応フォーマット
 
+### PDF・Office文書の画像化
+
+画像と同じ画面からPDF、PowerPoint（.pptx）、Word（.doc / .docx）、
+Excel（.xls / .xlsx / .xlsm）を選択・ドロップできます。文書はページ・スライドごとに
+画像化し、選択中のクロップ、リサイズ、容量調整、プリセット、出力形式を適用します。
+画像と文書を混ぜて一括処理することもできます。
+
+- 例：横幅1200px・WebPを選び、PowerPointをドロップすると全スライドをWebPで保存します。
+- 「元のフォーマットを維持」を選んだ文書はPNGで保存します。
+- 「サイズ変更なし」や容量指定では、横幅1920pxで画像化してから処理します。
+- 出力は `文書名_001.png` などのページ番号付きです。既存の文書出力と同名になる場合は連番を追加します。
+- 保存先は既存の「元のフォルダ」「output」設定を使います。一時PNG・PDFは処理後に削除します。
+- Office文書の変換にはWindowsと対応するデスクトップ版Microsoft Officeが必要です。PDFにはOfficeは不要です。
+- Excelは印刷設定に沿ったページ分割になります。パスワード保護PDFには対応していません。
+- 処理中は終了できません。途中でエラーが起きても、保存済みのページは残ります。
+
+追加依存関係も含め、`pip install -r requirements.txt` でインストールしてください。
+文書変換処理は `document_processor.py` に分離しています。Pptx2Image本体の配置には依存しません。
+
 ImageSizer は以下の画像フォーマットに対応しています：
 
 - PNG (.png)
@@ -51,6 +70,7 @@ ImageSizer は以下の画像フォーマットに対応しています：
 - BMP (.bmp)
 - TIFF (.tiff)
 - WebP (.webp)
+- SVG (.svg、PNG/WebPとして出力)
 
 注意：GIF (.gif) ファイルは処理されません。
 
@@ -61,6 +81,7 @@ ImageSizer は以下の画像フォーマットに対応しています：
   - tkinter
   - Pillow (PIL)
   - tkinterdnd2
+  - resvg-py
 
 ## インストール方法
 
@@ -68,7 +89,7 @@ ImageSizer は以下の画像フォーマットに対応しています：
 2. お使いのPCに必要なライブラリをインストールします：
 
    ```bash
-   pip install pillow tkinterdnd2
+   pip install -r requirements.txt
    ```
 
 3. `python main.py` を実行してアプリケーションを起動します。

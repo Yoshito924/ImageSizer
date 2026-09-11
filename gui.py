@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import platform
 import queue
@@ -9,7 +10,8 @@ from tkinterdnd2 import TkinterDnD, DND_FILES
 import threading
 import traceback
 from PIL import Image
-from image_processor import process_image, would_overwrite_input
+from image_processor import open_supported_image, process_image, would_overwrite_input
+from document_processor import is_document, process_document
 
 DEFAULT_SETTINGS = {
     "always_on_top": False,
@@ -226,7 +228,7 @@ class ImageProcessorApp:
             count = self.file_listbox.size()
 
         if hasattr(self, "file_summary_var"):
-            self.file_summary_var.set(f"選択中 {count} 枚")
+            self.file_summary_var.set(f"選択中 {count} ファイル")
 
         if hasattr(self, "file_empty_state") and self.file_empty_state.winfo_exists():
             if count == 0:
@@ -617,7 +619,7 @@ class ImageProcessorApp:
         )
         self.header_subtitle_label = ttk.Label(
             self.title_frame,
-            text="複数画像をまとめて整形できます。",
+            text="画像・PDF・Office文書をまとめて画像処理できます。",
             style="HeroSubtitle.TLabel",
             wraplength=700,
             justify=tk.LEFT,
@@ -654,7 +656,7 @@ class ImageProcessorApp:
         ).pack(side=tk.LEFT)
         self.header_hint_label = ttk.Label(
             self.header_meta,
-            text="ヒント: 追加した画像はすぐ処理されます",
+            text="ヒント: 追加したファイルはすぐ処理されます",
             style="HeroHint.TLabel",
         )
         self.header_hint_label.pack(side=tk.RIGHT)
@@ -666,7 +668,7 @@ class ImageProcessorApp:
         self.file_frame.pack(fill=tk.X, padx=8, pady=4)
         self.file_intro_label = ttk.Label(
             self.file_frame,
-            text="画像をドロップまたは選択すると自動で処理します。",
+            text="画像・PDF・PowerPoint・Word・Excelを自動で処理します。",
             style="Hint.TLabel",
         )
         self.file_intro_label.pack(anchor=tk.W, pady=(0, 4))
@@ -705,7 +707,7 @@ class ImageProcessorApp:
         listbox_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.file_empty_state = tk.Label(
             self.file_listbox_inner,
-            text="ここに画像をドロップ\nまたはファイルを選択して自動処理",
+            text="ここに画像・文書をドロップ\nまたはファイルを選択して自動処理",
             bg=colors["surface_alt"],
             fg=colors["muted"],
             font=(self.font_family, 9),
@@ -992,7 +994,7 @@ class ImageProcessorApp:
         format_frame.pack(fill=tk.X, pady=(0, 6))
         self.format_intro_label = ttk.Label(
             format_frame,
-            text="元形式か WebP / PNG を選びます。",
+            text="元形式か WebP / PNG を選びます。文書の元形式はPNGです。",
             style="Hint.TLabel",
         )
         self.format_intro_label.pack(anchor=tk.W, pady=(0, 4))
@@ -1209,7 +1211,11 @@ class ImageProcessorApp:
 
     def browse_files(self):
         files = filedialog.askopenfilenames(
-            filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.heic;*.heif;*.webp")]
+            filetypes=[
+                ("画像・文書", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.heic *.heif *.webp *.svg *.pdf *.pptx *.doc *.docx *.xls *.xlsx *.xlsm"),
+                ("画像", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.heic *.heif *.webp *.svg"),
+                ("文書", "*.pdf *.pptx *.doc *.docx *.xls *.xlsx *.xlsm"),
+            ]
         )
         if files:
             self.add_files(files)
@@ -1285,15 +1291,17 @@ class ImageProcessorApp:
 
         files = list(self.file_listbox.get(0, tk.END))
         if not files:
-            messagebox.showwarning("警告", "処理する画像ファイルが選択されていません。")
+            messagebox.showwarning("警告", "処理するファイルが選択されていません。")
             return
 
         size_type = self.size_type_var.get()
         if size_type != "none":
             try:
                 target_size = float(self.size_entry.get())
+                if not math.isfinite(target_size) or target_size <= 0 or (size_type in {"width", "height", "long_edge"} and target_size < 1):
+                    raise ValueError
             except ValueError:
-                messagebox.showerror("エラー", "目標サイズには数値を入力してください。")
+                messagebox.showerror("エラー", "目標サイズには正の数値を入力してください（ピクセル指定は1以上）。")
                 return
         else:
             target_size = None
@@ -1306,9 +1314,11 @@ class ImageProcessorApp:
             try:
                 aspect_width = float(self.aspect_width.get())
                 aspect_height = float(self.aspect_height.get())
+                if not all(math.isfinite(v) and v > 0 for v in (aspect_width, aspect_height)):
+                    raise ValueError
                 aspect_ratio = (aspect_width, aspect_height)
             except ValueError:
-                messagebox.showerror("エラー", "縦横比には数値を入力してください。")
+                messagebox.showerror("エラー", "縦横比には正の数値を入力してください。")
                 return
 
         format_value = self.format_var.get()
@@ -1340,6 +1350,8 @@ class ImageProcessorApp:
         if self.warn_on_overwrite_var.get():
             overwrite_candidates = []
             for file in files:
+                if is_document(file):
+                    continue
                 check_folder = output_base if output_dest == "output" else os.path.dirname(file)
                 if would_overwrite_input(
                     file,
@@ -1447,55 +1459,79 @@ class ImageProcessorApp:
                             _state["last"] = p
                             if delta > 0:
                                 event_queue.put(
-                                    ("progress_add", delta * 100 / len(files))
+                                    ("progress_add", delta * 100)
                                 )
 
-                        output_path, size_ratio, message = process_image(
-                            file,
-                            output_folder,
-                            target_size,
-                            operation,
-                            size_type,
-                            crop_type,
-                            aspect_ratio,
-                            progress_callback=on_progress,
-                            output_format=output_format,
-                            filename_pattern=filename_pattern,
-                            preset_name=preset_name,
-                        )
+                        if is_document(file):
+                            def on_page(path, page, total, note):
+                                with Image.open(path) as img:
+                                    width, height = img.size
+                                details = f"  注記: {note}\n" if note else ""
+                                event_queue.put((
+                                    "log",
+                                    f"ページ {page}/{total} 完了: {path}\n"
+                                    f"  {width}x{height}px, {os.path.getsize(path) / (1024 * 1024):.2f} MB\n{details}",
+                                    None,
+                                ))
 
-                        if output_path:
-                            final_size = os.path.getsize(output_path) / (1024 * 1024)
-                            original_size = os.path.getsize(file) / (1024 * 1024)
-                            with Image.open(file) as img:
-                                original_width, original_height = img.size
-                                # EXIFの回転指定がある場合は表示上の縦横に合わせる
-                                orientation = img.getexif().get(0x0112)
-                                if orientation in (5, 6, 7, 8):
-                                    original_width, original_height = (
-                                        original_height,
-                                        original_width,
-                                    )
-                            with Image.open(output_path) as img:
-                                final_width, final_height = img.size
-                            log_text = (
-                                f"処理完了: {file}\n"
-                                f"  出力: {output_path}\n"
-                                f"  元のサイズ: {original_size:.2f} MB, {original_width}x{original_height}px\n"
-                                f"  最終サイズ: {final_size:.2f} MB, {final_width}x{final_height}px\n"
-                                f"  サイズ比率: {size_ratio:.2%}\n"
+                            count = process_document(
+                                file, output_folder, target_size, operation,
+                                size_type, crop_type, aspect_ratio,
+                                output_format=output_format,
+                                filename_pattern=filename_pattern,
+                                preset_name=preset_name,
+                                progress_callback=on_progress,
+                                page_callback=on_page,
+                                cancelled=self._shutdown_event.is_set,
                             )
-                            if message:
-                                log_text += f"  注記: {message}\n"
-                            log_tag = None
-                        elif message:
-                            log_text = f"{file}: {message}\n"
-                            log_tag = "green"
+                            event_queue.put(("log", f"文書処理: {count} ページを保存しました。\n", None))
                         else:
-                            log_text = f"処理失敗: {file}\n"
-                            log_tag = None
+                            output_path, size_ratio, message = process_image(
+                                file,
+                                output_folder,
+                                target_size,
+                                operation,
+                                size_type,
+                                crop_type,
+                                aspect_ratio,
+                                progress_callback=on_progress,
+                                output_format=output_format,
+                                filename_pattern=filename_pattern,
+                                preset_name=preset_name,
+                            )
 
-                        event_queue.put(("log", log_text, log_tag))
+                            if output_path:
+                                final_size = os.path.getsize(output_path) / (1024 * 1024)
+                                original_size = os.path.getsize(file) / (1024 * 1024)
+                                with open_supported_image(file) as img:
+                                    original_width, original_height = img.size
+                                    # EXIFの回転指定がある場合は表示上の縦横に合わせる
+                                    orientation = img.getexif().get(0x0112)
+                                    if orientation in (5, 6, 7, 8):
+                                        original_width, original_height = (
+                                            original_height,
+                                            original_width,
+                                        )
+                                with Image.open(output_path) as img:
+                                    final_width, final_height = img.size
+                                log_text = (
+                                    f"処理完了: {file}\n"
+                                    f"  出力: {output_path}\n"
+                                    f"  元のサイズ: {original_size:.2f} MB, {original_width}x{original_height}px\n"
+                                    f"  最終サイズ: {final_size:.2f} MB, {final_width}x{final_height}px\n"
+                                    f"  サイズ比率: {size_ratio:.2%}\n"
+                                )
+                                if message:
+                                    log_text += f"  注記: {message}\n"
+                                log_tag = None
+                            elif message:
+                                log_text = f"{file}: {message}\n"
+                                log_tag = "green"
+                            else:
+                                log_text = f"処理失敗: {file}\n"
+                                log_tag = None
+
+                            event_queue.put(("log", log_text, log_tag))
                     except BaseException as e:
                         err_msg = (
                             f"エラー ({file}): {type(e).__name__}: {e}\n"
@@ -1677,6 +1713,9 @@ class ImageProcessorApp:
     def on_closing(self):
         """アプリケーション終了時の処理"""
         if self._is_closing:
+            return
+        if self.is_processing:
+            messagebox.showinfo("処理中", "処理が完了してからアプリを閉じてください。")
             return
         self._is_closing = True
 
