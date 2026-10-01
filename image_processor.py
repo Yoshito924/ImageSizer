@@ -259,6 +259,7 @@ def process_image(
 
         base_name = os.path.basename(input_path)
         name, ext = os.path.splitext(base_name)
+        is_svg_input = ext.lower() == ".svg"
 
         # GIFファイルはスキップ
         if ext.lower() == ".gif":
@@ -286,6 +287,30 @@ def process_image(
         img = crop_image(img, crop_type, aspect_ratio)
         cropped_width, cropped_height = img.size
         trace(f"crop done: {cropped_width}x{cropped_height}")
+
+        # SVGのXML容量は、画像化した出力の容量とは無関係。
+        # 容量指定では、クロップ後の画像を出力形式・品質で保存して測定する。
+        # 通常のラスター画像は従来どおり入力ファイルの容量を基準にする。
+        size_reference_ratio = 1.0
+        if is_svg_input and size_type in ("mb", "kb"):
+            size_img = img
+            if is_webp_output:
+                size_img, _ = _limit_image_for_webp(img)
+                size_reference_ratio = max(size_img.size) / max(img.size)
+            try:
+                with BytesIO() as size_buffer:
+                    if is_webp_output:
+                        size_img.save(size_buffer, "WEBP", quality=quality)
+                    else:
+                        size_img.save(
+                            size_buffer, Image.registered_extensions()[ext.lower()],
+                            quality=quality, optimize=True,
+                        )
+                    original_size = size_buffer.tell() / (1024 * 1024)
+            finally:
+                if size_img is not img:
+                    size_img.close()
+            trace(f"rasterized output size: {original_size:.6f}MB")
 
         # 出力ファイル名のベース部分を生成
         output_filename = name
@@ -372,20 +397,22 @@ def process_image(
             if operation == "auto":
                 if original_size <= target_size_mb:
                     return _save_without_resize(
-                        f"元のサイズ {original_size:.2f}MB が目標 {target_size_mb:.2f}MB 以下のためリサイズ不要"
+                        f"{'画像化後のサイズ' if is_svg_input else '元のサイズ'} "
+                        f"{original_size:.2f}MB が目標 {target_size_mb:.2f}MB 以下のためリサイズ不要"
                     )
                 operation = "compress"
-            size_ratio = (target_size_mb / original_size) ** 0.5
+            size_ratio = size_reference_ratio * (target_size_mb / original_size) ** 0.5
         elif size_type == "kb":
             target_size_kb = float(target_size)
             target_size_mb = target_size_kb / 1024.0  # KBをMBに変換
             if operation == "auto":
                 if original_size <= target_size_mb:
                     return _save_without_resize(
-                        f"元のサイズ {original_size * 1024:.0f}KB が目標 {target_size_kb:.0f}KB 以下のためリサイズ不要"
+                        f"{'画像化後のサイズ' if is_svg_input else '元のサイズ'} "
+                        f"{original_size * 1024:.0f}KB が目標 {target_size_kb:.0f}KB 以下のためリサイズ不要"
                     )
                 operation = "compress"
-            size_ratio = (target_size_mb / original_size) ** 0.5
+            size_ratio = size_reference_ratio * (target_size_mb / original_size) ** 0.5
         else:
             target_size = int(target_size)
             if is_webp_output:
@@ -414,8 +441,8 @@ def process_image(
             last_valid_path = None
             while iteration < max_iterations:
                 trace(f"iter {iteration}: size_ratio={size_ratio:.3f} quality={quality}")
-                new_width = round(cropped_width * size_ratio)
-                new_height = round(cropped_height * size_ratio)
+                new_width = max(1, round(cropped_width * size_ratio))
+                new_height = max(1, round(cropped_height * size_ratio))
 
                 trace(f"iter {iteration}: resize to {new_width}x{new_height}")
                 resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
@@ -487,7 +514,11 @@ def process_image(
                     return output_path, size_ratio, _merge_messages(*notes, webp_limit_note)
 
                 if operation == "compress":
-                    size_ratio *= 0.85  # より大きなステップで調整
+                    if is_svg_input and size_type in ("mb", "kb"):
+                        # 縮小で圧縮率が変わる場合も、実際の出力容量で再調整する。
+                        size_ratio *= min(0.85, (target_size_mb / new_size) ** 0.5)
+                    else:
+                        size_ratio *= 0.85  # より大きなステップで調整
                     quality = max(quality - 10, 10)
                 else:
                     size_ratio *= 1.15  # より大きなステップで調整
