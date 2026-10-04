@@ -310,11 +310,9 @@ def process_image(
         cropped_width, cropped_height = img.size
         trace(f"crop done: {cropped_width}x{cropped_height}")
 
-        # SVGのXML容量は、画像化した出力の容量とは無関係。
-        # 容量指定では、クロップ後の画像を出力形式・品質で保存して測定する。
-        # 通常のラスター画像は従来どおり入力ファイルの容量を基準にする。
+        # 入力容量ではなく、クロップ・向き補正後の出力形式で容量を測る。
         size_reference_ratio = 1.0
-        if is_svg_input and size_type in ("mb", "kb"):
+        if size_type in ("mb", "kb"):
             size_img = img
             if is_webp_output:
                 size_img, _ = _limit_image_for_webp(img)
@@ -393,7 +391,7 @@ def process_image(
             return output_path, 1.0, _merge_messages(*notes, webp_limit_note)
 
         def _save_without_resize(note_text):
-            """元のファイルがすでに目標以下のときにリサイズなしで保存する"""
+            """出力画像がすでに目標以下のときにリサイズなしで保存する"""
             save_path = os.path.join(output_folder, f"{output_filename}{ext}")
             with _safe_output_path(input_path, save_path) as save_path:
                 trace(f"pass-through save to {save_path}")
@@ -419,7 +417,7 @@ def process_image(
             if operation == "auto":
                 if original_size <= target_size_mb:
                     return _save_without_resize(
-                        f"{'画像化後のサイズ' if is_svg_input else '元のサイズ'} "
+                        f"出力画像のサイズ "
                         f"{original_size:.2f}MB が目標 {target_size_mb:.2f}MB 以下のためリサイズ不要"
                     )
                 operation = "compress"
@@ -430,7 +428,7 @@ def process_image(
             if operation == "auto":
                 if original_size <= target_size_mb:
                     return _save_without_resize(
-                        f"{'画像化後のサイズ' if is_svg_input else '元のサイズ'} "
+                        f"出力画像のサイズ "
                         f"{original_size * 1024:.0f}KB が目標 {target_size_kb:.0f}KB 以下のためリサイズ不要"
                     )
                 operation = "compress"
@@ -536,7 +534,7 @@ def process_image(
                     return output_path, size_ratio, _merge_messages(*notes, webp_limit_note)
 
                 if operation == "compress":
-                    if is_svg_input and size_type in ("mb", "kb"):
+                    if size_type in ("mb", "kb"):
                         # 縮小で圧縮率が変わる場合も、実際の出力容量で再調整する。
                         size_ratio *= min(0.85, (target_size_mb / new_size) ** 0.5)
                     else:
@@ -547,6 +545,12 @@ def process_image(
                     quality = min(quality + 10, 95)
 
                 iteration += 1
+
+            # 容量上限を満たせない場合は、上限超過の出力を保存しない。
+            if size_type in ("mb", "kb") and operation == "compress":
+                if progress_callback:
+                    progress_callback(1.0)
+                return None, 0, _merge_messages(*notes, webp_limit_note, "指定容量以下にできませんでした。目標サイズを大きくしてください")
 
             # 最後の有効なファイルを使用
             if last_valid_path and os.path.exists(last_valid_path):

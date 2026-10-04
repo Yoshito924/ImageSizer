@@ -161,6 +161,29 @@ class SVGProcessingTests(ImageProcessingTestCase):
 
 
 class RasterProcessingTests(ImageProcessingTestCase):
+    def test_converted_and_reencoded_jpeg_meets_capacity(self):
+        import random
+        source = self.root / "source.jpg"
+        Image.frombytes("RGB", (512, 512), random.Random(0).randbytes(512 * 512 * 3)).save(source, quality=10)
+        original = source.read_bytes()
+        self.assertLess(len(original), 64 * 1024)
+        for fmt in ("png", "webp", None):
+            limit_kb = 32 if fmt is None else 64
+            for unit, target in (("kb", limit_kb), ("mb", limit_kb / 1024)):
+                with self.subTest(fmt=fmt, unit=unit):
+                    path, _, note = self.process(source, output_format=fmt, size_type=unit, target_size=target)
+                    self.assertLessEqual(Path(path).stat().st_size, limit_kb * 1024)
+                    self.assertNotIn("リサイズ不要", note or "")
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_impossible_capacity_does_not_save_oversized_output(self):
+        source = self.root / "tiny.png"
+        Image.new("RGB", (1, 1), "red").save(source)
+        path, _, note = self.process(source, size_type="kb", target_size=0.000001)
+        self.assertIsNone(path)
+        self.assertIn("指定容量以下にできませんでした", note)
+        self.assertEqual(list(self.output.iterdir()), [])
+
     def test_under_limit_raster_keeps_dimensions(self):
         for suffix in ("png", "jpg", "webp"):
             source = self.root / ("source." + suffix)
@@ -193,7 +216,6 @@ class OutputCollisionTests(ImageProcessingTestCase):
             {},
             dict(size_type="kb", target_size=1024),
             dict(size_type="width", target_size=48),
-            dict(size_type="kb", target_size=0.000001),
         )
         for options in cases:
             with self.subTest(options=options):

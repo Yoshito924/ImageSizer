@@ -218,6 +218,9 @@ class ImageProcessorApp:
             self.file_empty_state.config(bg=bg)
 
     def _refresh_ui_state(self):
+        for name in ("file_remove_button", "file_clear_button"):
+            if hasattr(self, name):
+                getattr(self, name).configure(state="disabled" if self.is_processing else "normal")
         self._update_file_summary()
         self._update_output_status()
         self._update_preset_status()
@@ -1199,6 +1202,8 @@ class ImageProcessorApp:
 
     def remove_selected_files(self):
         """選択されたファイルをリストから削除"""
+        if self.is_processing:
+            return
         selected = self.file_listbox.curselection()
         for i in reversed(selected):
             self.file_listbox.delete(i)
@@ -1206,6 +1211,8 @@ class ImageProcessorApp:
 
     def clear_all_files(self):
         """すべてのファイルをリストからクリア"""
+        if self.is_processing:
+            return
         self.file_listbox.delete(0, tk.END)
         self._refresh_ui_state()
 
@@ -1389,6 +1396,7 @@ class ImageProcessorApp:
         self.progress["maximum"] = len(files) * 100
         self.progress["value"] = 0
         self.is_processing = True
+        self._refresh_ui_state()
 
         max_progress = len(files) * 100
         event_queue = queue.Queue()
@@ -1636,80 +1644,6 @@ class ImageProcessorApp:
                     pass
         self._child_processes.clear()
 
-    def _get_windows_process_ancestors(self):
-        """現在のプロセスから親方向へ辿った Windows プロセス情報を取得する。"""
-        if platform.system() != "Windows":
-            return []
-
-        command = (
-            f"$current = {os.getpid()}; "
-            "$items = @(); "
-            "while ($current) { "
-            "  $p = Get-CimInstance Win32_Process -Filter \"ProcessId=$current\"; "
-            "  if (-not $p) { break }; "
-            "  $items += [pscustomobject]@{ "
-            "    ProcessId = [int]$p.ProcessId; "
-            "    ParentProcessId = [int]$p.ParentProcessId; "
-            "    Name = [string]$p.Name "
-            "  }; "
-            "  if ($p.ParentProcessId -eq 0) { break }; "
-            "  $current = $p.ParentProcessId "
-            "}; "
-            "$items | ConvertTo-Json -Compress"
-        )
-        try:
-            result = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=3,
-                check=False,
-            )
-            if result.returncode != 0 or not result.stdout.strip():
-                return []
-            ancestors = json.loads(result.stdout)
-            if isinstance(ancestors, dict):
-                return [ancestors]
-            if isinstance(ancestors, list):
-                return ancestors
-        except Exception:
-            pass
-        return []
-
-    def _close_launcher_terminal(self):
-        """bat/ps1 経由で起動された外側のターミナルを閉じる。"""
-        ancestors = self._get_windows_process_ancestors()
-        if not ancestors:
-            return
-
-        shell_names = {"cmd.exe", "powershell.exe", "pwsh.exe"}
-        skip_parent_names = {"windowsterminal.exe"}
-        shell_index = None
-        for index, process_info in enumerate(ancestors[1:], start=1):
-            name = str(process_info.get("Name", "")).lower()
-            if name in shell_names:
-                shell_index = index
-
-        if shell_index is None:
-            return
-
-        parent_name = ""
-        if shell_index + 1 < len(ancestors):
-            parent_name = str(ancestors[shell_index + 1].get("Name", "")).lower()
-        if parent_name in skip_parent_names:
-            return
-
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(ancestors[shell_index]["ProcessId"]), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-        except Exception:
-            pass
-
     def on_closing(self):
         """アプリケーション終了時の処理"""
         if self._is_closing:
@@ -1737,9 +1671,6 @@ class ImageProcessorApp:
 
         # 登録済みの子プロセス（ターミナル等）を停止
         self._terminate_child_processes()
-
-        # bat/ps1 などで起動された場合に残る起動元ターミナルを閉じる
-        self._close_launcher_terminal()
 
         # ウィンドウを閉じる
         self.master.destroy()
