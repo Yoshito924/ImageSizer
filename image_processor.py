@@ -67,12 +67,34 @@ except ImportError:
     pass
 
 
+@contextmanager
 def _safe_output_path(input_path, output_path):
-    """入力ファイルと同じパスの場合、上書きを防止する"""
+    """既存ファイルを上書きしない出力先を予約し、保存失敗時は片付ける。"""
     if os.path.abspath(output_path) == os.path.abspath(input_path):
         name, ext = os.path.splitext(output_path)
         output_path = f"{name}_processed{ext}"
-    return output_path
+    name, ext = os.path.splitext(output_path)
+    counter = 1
+    while True:
+        try:
+            # 同時処理でも同じ出力先を選ばないよう、排他的に作成する。
+            with open(output_path, "xb"):
+                pass
+            break
+        except (FileExistsError, PermissionError) as exc:
+            # Windowsでは同名ディレクトリとの衝突もPermissionErrorになる。
+            if isinstance(exc, PermissionError) and not os.path.lexists(output_path):
+                raise
+            output_path = f"{name}_{counter:03d}{ext}"
+            counter += 1
+    try:
+        yield output_path
+    except BaseException:
+        try:
+            os.remove(output_path)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def _merge_messages(*messages):
@@ -357,15 +379,15 @@ def process_image(
 
         if size_type == "none":
             output_path = os.path.join(output_folder, f"{output_filename}{ext}")
-            output_path = _safe_output_path(input_path, output_path)
-            if is_webp_output:
-                save_img, note = _limit_image_for_webp(img)
-                set_webp_limit_note(note)
-                save_img.save(output_path, 'WEBP', quality=quality)
-            elif output_format == 'png':
-                img.save(output_path, 'PNG', optimize=True)
-            else:
-                img.save(output_path, quality=quality, optimize=True)
+            with _safe_output_path(input_path, output_path) as output_path:
+                if is_webp_output:
+                    save_img, note = _limit_image_for_webp(img)
+                    set_webp_limit_note(note)
+                    save_img.save(output_path, 'WEBP', quality=quality)
+                elif output_format == 'png':
+                    img.save(output_path, 'PNG', optimize=True)
+                else:
+                    img.save(output_path, quality=quality, optimize=True)
             if progress_callback:
                 progress_callback(1.0)
             return output_path, 1.0, _merge_messages(*notes, webp_limit_note)
@@ -373,20 +395,20 @@ def process_image(
         def _save_without_resize(note_text):
             """元のファイルがすでに目標以下のときにリサイズなしで保存する"""
             save_path = os.path.join(output_folder, f"{output_filename}{ext}")
-            save_path = _safe_output_path(input_path, save_path)
-            trace(f"pass-through save to {save_path}")
-            save_img = img
-            webp_note = None
-            if is_webp_output:
-                save_img, webp_note = _limit_image_for_webp(save_img)
-                set_webp_limit_note(webp_note)
-                save_img.save(save_path, 'WEBP', quality=quality)
-            elif output_format == 'png':
-                save_img.save(save_path, 'PNG', optimize=True)
-            elif ext.lower() in [".jpg", ".jpeg"]:
-                save_img.save(save_path, quality=quality, optimize=True)
-            else:
-                save_img.save(save_path, optimize=True)
+            with _safe_output_path(input_path, save_path) as save_path:
+                trace(f"pass-through save to {save_path}")
+                save_img = img
+                webp_note = None
+                if is_webp_output:
+                    save_img, webp_note = _limit_image_for_webp(save_img)
+                    set_webp_limit_note(webp_note)
+                    save_img.save(save_path, 'WEBP', quality=quality)
+                elif output_format == 'png':
+                    save_img.save(save_path, 'PNG', optimize=True)
+                elif ext.lower() in [".jpg", ".jpeg"]:
+                    save_img.save(save_path, quality=quality, optimize=True)
+                else:
+                    save_img.save(save_path, optimize=True)
             if progress_callback:
                 progress_callback(1.0)
             add_note(note_text)
@@ -505,9 +527,9 @@ def process_image(
                             output_filename += f"_{current_ratio}%"
 
                     output_path = os.path.join(output_folder, f"{output_filename}{ext}")
-                    output_path = _safe_output_path(input_path, output_path)
-                    trace(f"copy to {output_path}")
-                    shutil.copy2(temp_path, output_path)
+                    with _safe_output_path(input_path, output_path) as output_path:
+                        trace(f"copy to {output_path}")
+                        shutil.copy2(temp_path, output_path)
                     trace("copy done")
                     if progress_callback:
                         progress_callback(1.0)
@@ -529,8 +551,8 @@ def process_image(
             # 最後の有効なファイルを使用
             if last_valid_path and os.path.exists(last_valid_path):
                 output_path = os.path.join(output_folder, f"{output_filename}{ext}")
-                output_path = _safe_output_path(input_path, output_path)
-                shutil.copy2(last_valid_path, output_path)
+                with _safe_output_path(input_path, output_path) as output_path:
+                    shutil.copy2(last_valid_path, output_path)
                 if progress_callback:
                     progress_callback(1.0)
                 return output_path, size_ratio, _merge_messages(*notes, webp_limit_note, "近似値で保存されました")

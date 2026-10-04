@@ -1,6 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -176,6 +179,118 @@ class RasterProcessingTests(ImageProcessingTestCase):
                     with Image.open(path) as img:
                         self.assertEqual(img.size, (96, 64))
             self.assertEqual(source.read_bytes(), source_bytes)
+
+
+class OutputCollisionTests(ImageProcessingTestCase):
+    def setUp(self):
+        super().setUp()
+        self.source = self.root / "source.png"
+        with Image.new("RGB", (96, 64), "red") as img:
+            img.save(self.source)
+
+    def test_repeated_outputs_preserve_existing_in_every_save_path(self):
+        cases = (
+            {},
+            dict(size_type="kb", target_size=1024),
+            dict(size_type="width", target_size=48),
+            dict(size_type="kb", target_size=0.000001),
+        )
+        for options in cases:
+            with self.subTest(options=options):
+                first, _, _ = self.process(self.source, **options)
+                original = Path(first).read_bytes()
+                second, _, _ = self.process(self.source, **options)
+                self.assertNotEqual(first, second)
+                self.assertEqual(Path(first).read_bytes(), original)
+                with Image.open(second) as img:
+                    img.load()
+
+    def test_format_conversion_preserves_existing_sibling(self):
+        self.output = self.root
+        sibling = self.root / "source.webp"
+        sibling.write_bytes(b"existing sibling must survive")
+        source_bytes = self.source.read_bytes()
+        result, _, _ = self.process(self.source, output_format="webp")
+        self.assertNotEqual(Path(result), sibling)
+        self.assertEqual(sibling.read_bytes(), b"existing sibling must survive")
+        self.assertEqual(self.source.read_bytes(), source_bytes)
+        with Image.open(result) as img:
+            self.assertEqual(img.format, "WEBP")
+
+    def test_same_folder_preserves_source_and_processed_files(self):
+        self.output = self.root
+        source_bytes = self.source.read_bytes()
+        existing = self.root / "source_processed.png"
+        existing.write_bytes(b"previous output")
+        # A directory with a candidate name must not block processing either.
+        (self.root / "source_processed_001.png").mkdir()
+        result, _, _ = self.process(self.source)
+        self.assertEqual(Path(result).name, "source_processed_002.png")
+        self.assertEqual(existing.read_bytes(), b"previous output")
+        self.assertEqual(self.source.read_bytes(), source_bytes)
+
+    def test_sequential_and_size_ratio_names_do_not_collide(self):
+        options = dict(size_type="width", target_size=48,
+                       filename_pattern={"include_sequential": True,
+                                         "include_size_ratio": True})
+        first, _, _ = self.process(self.source, **options)
+        original = Path(first).read_bytes()
+        second, _, _ = self.process(self.source, **options)
+        self.assertNotEqual(first, second)
+        self.assertEqual(Path(first).read_bytes(), original)
+
+    def test_windows_directory_collision_uses_another_name(self):
+        existing = self.output / "source.png"
+        existing.mkdir()
+        original_open = open
+
+        def windows_open(path, mode="r", *args, **kwargs):
+            if Path(path) == existing and mode == "xb":
+                raise PermissionError("directory occupies candidate")
+            return original_open(path, mode, *args, **kwargs)
+
+        with patch("builtins.open", windows_open):
+            result, _, _ = self.process(self.source)
+        self.assertEqual(Path(result).name, "source_001.png")
+        self.assertTrue(existing.is_dir())
+
+    def test_unwritable_destination_reports_permission_error(self):
+        original_open = open
+
+        def denied_open(path, mode="r", *args, **kwargs):
+            if mode == "xb":
+                raise PermissionError("destination is not writable")
+            return original_open(path, mode, *args, **kwargs)
+
+        with patch("builtins.open", denied_open):
+            with self.assertRaisesRegex(PermissionError, "not writable"):
+                self.process(self.source)
+        self.assertFalse(list(self.output.iterdir()))
+
+    def test_concurrent_outputs_reserve_distinct_paths(self):
+        barrier = Barrier(2)
+        save = Image.Image.save
+
+        def synchronized_save(img, *args, **kwargs):
+            barrier.wait(timeout=5)
+            return save(img, *args, **kwargs)
+
+        with patch.object(Image.Image, "save", synchronized_save):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(self.process, [self.source, self.source]))
+        self.assertNotEqual(results[0][0], results[1][0])
+        for path, _, _ in results:
+            with Image.open(path) as img:
+                img.load()
+
+    def test_failed_save_removes_only_its_reserved_output(self):
+        existing = self.output / "source.png"
+        existing.write_bytes(b"previous output")
+        with patch.object(Image.Image, "save", side_effect=OSError("save failed")):
+            with self.assertRaisesRegex(OSError, "save failed"):
+                self.process(self.source)
+        self.assertEqual(list(self.output.iterdir()), [existing])
+        self.assertEqual(existing.read_bytes(), b"previous output")
 
 
 if __name__ == "__main__":
